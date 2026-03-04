@@ -340,22 +340,37 @@ export function setupAgentHandlers() {
   // List skill files discovered in the project directory.
   ipcMain.handle('agent:list-skills', async (_event, projectPath: string) => {
     const skillDirs = [
-      path.join(projectPath, '.github', 'copilot', 'skills'),
-      path.join(projectPath, '.copilot', 'skills'),
+      { dir: path.join(projectPath, '.github', 'agents'), category: 'agent' },
+      { dir: path.join(projectPath, '.github', 'chatmodes'), category: 'chatmode' },
+      { dir: path.join(projectPath, '.github', 'copilot', 'skills'), category: 'skill' },
+      { dir: path.join(projectPath, '.copilot', 'skills'), category: 'skill' },
     ];
-    const skills: { name: string; path: string; description: string }[] = [];
-    for (const dir of skillDirs) {
+    const skills: { name: string; path: string; description: string; category: string }[] = [];
+
+    // Also check for copilot-instructions.md
+    const instructionsPath = path.join(projectPath, '.github', 'copilot-instructions.md');
+    if (fs.existsSync(instructionsPath)) {
+      skills.push({
+        name: 'copilot-instructions',
+        path: instructionsPath,
+        description: 'Project-level instructions for Copilot',
+        category: 'instructions',
+      });
+    }
+
+    for (const { dir, category } of skillDirs) {
       try {
         if (!fs.existsSync(dir)) continue;
-        const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.md') && f !== 'README.md');
         for (const file of files) {
           const filePath = path.join(dir, file);
           const content = fs.readFileSync(filePath, 'utf-8');
-          const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || '';
+          const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '').replace(/^---\s*$/, '') || '';
           skills.push({
-            name: file.replace(/\.md$/, ''),
+            name: file.replace(/\.md$/, '').replace(/\.(agent|chatmode)$/, ''),
             path: filePath,
             description: firstLine.substring(0, 100),
+            category,
           });
         }
       } catch { /* dir not readable */ }

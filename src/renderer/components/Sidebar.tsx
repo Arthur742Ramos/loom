@@ -28,7 +28,7 @@ export const Sidebar: React.FC = () => {
   const fetchModels = useAppStore((s) => s.fetchModels);
   const [loginLoading, setLoginLoading] = useState(false);
   const [showSkills, setShowSkills] = useState(false);
-  const [skills, setSkills] = useState<{ name: string; path: string; description: string }[]>([]);
+  const [skills, setSkills] = useState<{ name: string; path: string; description: string; category: string }[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
 
   const loadSkills = async () => {
@@ -155,14 +155,24 @@ export const Sidebar: React.FC = () => {
             {!skillsLoading && skills.length === 0 && (
               <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
                 <p>No skills found.</p>
-                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code></p>
+                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/agents/</code></p>
               </div>
             )}
-            {skills.map((skill) => (
-              <div key={skill.name} className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
-                <LayoutGrid className="w-3 h-3 text-primary mt-0.5 shrink-0" />
-                <div className="min-w-0">
-                  <p className="font-medium text-foreground truncate">{skill.name}</p>
+            {skills.map((skill, i) => (
+              <div key={`${skill.category}-${skill.name}-${i}`} className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
+                <span className="mt-0.5 shrink-0">
+                  {skill.category === 'agent' ? '🤖' : skill.category === 'chatmode' ? '💬' : skill.category === 'instructions' ? '📋' : '⚡'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <p className="font-medium text-foreground truncate">{skill.name}</p>
+                    <span className={cn('text-[9px] px-1 py-px rounded font-medium shrink-0',
+                      skill.category === 'agent' ? 'bg-purple-100 text-purple-700'
+                        : skill.category === 'chatmode' ? 'bg-blue-100 text-blue-700'
+                        : skill.category === 'instructions' ? 'bg-amber-100 text-amber-700'
+                        : 'bg-green-100 text-green-700'
+                    )}>{skill.category}</span>
+                  </div>
                   {skill.description && <p className="text-muted-foreground truncate">{skill.description}</p>}
                 </div>
               </div>
