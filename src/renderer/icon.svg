@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" fill="none">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="256" y2="256" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#6366f1"/>
+      <stop offset="100%" stop-color="#9333ea"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="48" fill="url(#g)"/>
+  <g stroke="white" stroke-width="12" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Loom frame -->
+    <rect x="48" y="48" width="160" height="160" rx="24" />
+    <!-- Warp threads (vertical) -->
+    <line x1="96" y1="72" x2="96" y2="184" />
+    <line x1="128" y1="72" x2="128" y2="184" />
+    <line x1="160" y1="72" x2="160" y2="184" />
+    <!-- Weft threads (horizontal weave) -->
+    <path d="M68 112 C80 100, 108 124, 120 112 S148 100, 160 112 S180 124, 188 112" />
+    <path d="M68 148 C80 160, 108 136, 120 148 S148 160, 160 148 S180 136, 188 148" />
+  </g>
+</svg>

@@ -1,7 +1,8 @@
 import React from 'react';
 import { useAppStore } from '../store/appStore';
-import { Minus, Square, X, Github } from 'lucide-react';
+import { Minus, Square, X } from 'lucide-react';
 import { Button } from './ui/button';
+import { LoomIcon } from './LoomIcon';
 
 export const TitleBar: React.FC = () => {
   const projectName = useAppStore((s) => s.projectName);
@@ -17,7 +18,7 @@ export const TitleBar: React.FC = () => {
     <div className="drag-region h-[42px] bg-card border-b flex items-center justify-between px-3 shrink-0 rounded-t-2xl">
       <div className="flex items-center gap-4 flex-1">
         <div className="flex items-center gap-2 text-primary font-semibold text-[13px]">
-          <Github className="w-[18px] h-[18px]" />
+          <LoomIcon className="w-[18px] h-[18px]" />
           <span className="tracking-wide">Loom</span>
         </div>
         {projectName && (

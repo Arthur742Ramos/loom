@@ -8,6 +8,7 @@ import {
   Clipboard, Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { LoomLogo } from './LoomIcon';
 
 export const Sidebar: React.FC = () => {
   const threads = useAppStore((s) => s.threads);
@@ -97,9 +98,7 @@ export const Sidebar: React.FC = () => {
     <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0">
       {/* Brand */}
       <div className="px-5 mb-6 flex items-center gap-2.5">
-        <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center">
-          <span className="text-white text-xs font-bold">C</span>
-        </div>
+        <LoomLogo className="w-7 h-7 p-1" />
         <span className="text-[15px] font-semibold text-foreground">Loom</span>
       </div>
 

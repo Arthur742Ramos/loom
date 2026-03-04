@@ -5,10 +5,11 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import {
-  MessageSquare, GitCompare, TerminalSquare, Send, RefreshCw, Github, ChevronDown, Check, Loader2,
+  MessageSquare, GitCompare, TerminalSquare, Send, RefreshCw, ChevronDown, Check, Loader2,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MarkdownMessage } from './MarkdownMessage';
+import { LoomIcon } from './LoomIcon';
 
 const ModelPicker: React.FC<{
   value: string;
@@ -137,6 +138,10 @@ export const ThreadPanel: React.FC = () => {
   const [pendingPermission, setPendingPermission] = useState<{
     kind: string; toolName?: string; toolArgs?: any; replyChannel: string;
   } | null>(null);
+  const [pendingUserInput, setPendingUserInput] = useState<{
+    question: string; choices?: string[]; allowFreeform?: boolean; replyChannel: string;
+  } | null>(null);
+  const [userInputAnswer, setUserInputAnswer] = useState('');
   const [agentStatus, setAgentStatus] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -172,6 +177,27 @@ export const ThreadPanel: React.FC = () => {
     const { ipcRenderer } = (window as any).require('electron');
     ipcRenderer.send(pendingPermission.replyChannel, approved);
     setPendingPermission(null);
+  };
+
+  // Listen for user-input requests (ask_user tool) from the agent backend.
+  useEffect(() => {
+    if (typeof window === 'undefined' || !(window as any).require) return;
+    const { ipcRenderer } = (window as any).require('electron');
+    const handler = (_: any, threadId: string, data: any) => {
+      if (threadId !== activeThreadId) return;
+      setPendingUserInput(data);
+      setUserInputAnswer('');
+    };
+    ipcRenderer.on('agent:user-input-request', handler);
+    return () => { ipcRenderer.removeListener('agent:user-input-request', handler); };
+  }, [activeThreadId]);
+
+  const respondToUserInput = (answer: string) => {
+    if (!pendingUserInput) return;
+    const { ipcRenderer } = (window as any).require('electron');
+    ipcRenderer.send(pendingUserInput.replyChannel, answer);
+    setPendingUserInput(null);
+    setUserInputAnswer('');
   };
 
   const handleSend = () => {
@@ -322,7 +348,7 @@ export const ThreadPanel: React.FC = () => {
             <div className="px-8 py-4">
               {thread.messages.length === 0 && (
                 <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 pb-20">
-                  <Github className="w-12 h-12 text-muted-foreground opacity-30" strokeWidth={1.5} />
+                  <LoomIcon className="w-12 h-12 text-muted-foreground opacity-30" strokeWidth={1} />
                   <p className="text-muted-foreground text-[15px]">Start a conversation to work on this task</p>
                   <p className="text-muted-foreground/60 text-xs">Copilot can write code, run commands, review diffs, and more</p>
                 </div>
@@ -340,7 +366,7 @@ export const ThreadPanel: React.FC = () => {
                     )}>
                       {msg.role === 'user'
                         ? (githubUser?.login?.[0]?.toUpperCase() || 'U')
-                        : <Github className="w-3.5 h-3.5" />}
+                        : <LoomIcon className="w-3.5 h-3.5" />}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
@@ -403,20 +429,15 @@ export const ThreadPanel: React.FC = () => {
               <span className="text-amber-600 text-lg mt-0.5">🔐</span>
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-amber-900">
-                  Permission requested: <span className="font-mono">{pendingPermission.kind}</span>
+                  Allow <span className="font-mono">{pendingPermission.kind}</span> access?
                 </p>
-                {pendingPermission.toolName && (
-                  <p className="text-[11px] text-amber-800 mt-0.5">
-                    Tool: <code className="bg-amber-100 px-1 rounded text-[11px]">{pendingPermission.toolName}</code>
-                  </p>
-                )}
-                {pendingPermission.toolArgs && (
-                  <pre className="text-[10px] text-amber-700 mt-1 bg-amber-100/60 rounded p-1.5 overflow-x-auto max-h-[60px]">
-                    {typeof pendingPermission.toolArgs === 'string'
-                      ? pendingPermission.toolArgs
-                      : JSON.stringify(pendingPermission.toolArgs, null, 2)}
-                  </pre>
-                )}
+                {(() => {
+                  const { kind, replyChannel, ...rest } = pendingPermission as any;
+                  const details = rest.toolName || rest.command || rest.path || rest.url;
+                  return details ? (
+                    <p className="text-[11px] text-amber-800 mt-0.5 font-mono truncate">{String(details)}</p>
+                  ) : null;
+                })()}
               </div>
               <div className="flex gap-1.5 shrink-0">
                 <Button size="sm" variant="outline"
@@ -428,6 +449,44 @@ export const ThreadPanel: React.FC = () => {
                   onClick={() => respondToPermission(true)}
                 >Allow</Button>
               </div>
+            </div>
+          )}
+
+          {/* User-input request banner (ask_user tool) */}
+          {pendingUserInput && (
+            <div className="mx-8 mb-1 p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+              <div className="flex items-start gap-2">
+                <span className="text-blue-600 text-lg">💬</span>
+                <p className="text-[13px] font-medium text-blue-900">{pendingUserInput.question}</p>
+              </div>
+              {pendingUserInput.choices && pendingUserInput.choices.length > 0 && (
+                <div className="flex flex-wrap gap-1.5 pl-7">
+                  {pendingUserInput.choices.map((choice: string, i: number) => (
+                    <Button key={i} size="sm" variant="outline"
+                      className="h-7 text-xs border-blue-300 text-blue-800 hover:bg-blue-100"
+                      onClick={() => respondToUserInput(choice)}
+                    >{choice}</Button>
+                  ))}
+                </div>
+              )}
+              {(pendingUserInput.allowFreeform !== false || !pendingUserInput.choices?.length) && (
+                <div className="flex gap-1.5 pl-7">
+                  <input
+                    type="text"
+                    className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-blue-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 text-foreground placeholder:text-muted-foreground"
+                    placeholder="Type your answer..."
+                    value={userInputAnswer}
+                    onChange={(e) => setUserInputAnswer(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && userInputAnswer.trim()) respondToUserInput(userInputAnswer.trim()); }}
+                    autoFocus
+                  />
+                  <Button size="sm"
+                    className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                    disabled={!userInputAnswer.trim()}
+                    onClick={() => respondToUserInput(userInputAnswer.trim())}
+                  >Send</Button>
+                </div>
+              )}
             </div>
           )}
 

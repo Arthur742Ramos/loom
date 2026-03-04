@@ -110,9 +110,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     return new Promise<any>((resolve) => {
       const replyChannel = `agent:permission-reply:${request.threadId}:${Date.now()}`;
       sender.send('agent:permission-request', request.threadId, {
-        kind: req.kind,
-        toolName: req.toolName,
-        toolArgs: req.toolArgs,
+        ...req,
         replyChannel,
       });
       ipcMain.once(replyChannel, (_: any, approved: boolean) => {
