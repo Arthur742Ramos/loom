@@ -17,6 +17,9 @@ export const Sidebar: React.FC = () => {
   const setActiveThread = useAppStore((s) => s.setActiveThread);
   const createThread = useAppStore((s) => s.createThread);
   const removeThread = useAppStore((s) => s.removeThread);
+  const updateThread = useAppStore((s) => s.updateThread);
+  const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
   const projectPath = useAppStore((s) => s.projectPath);
   const projectName = useAppStore((s) => s.projectName);
   const setProject = useAppStore((s) => s.setProject);
@@ -24,6 +27,20 @@ export const Sidebar: React.FC = () => {
   const setGitHubUser = useAppStore((s) => s.setGitHubUser);
   const fetchModels = useAppStore((s) => s.fetchModels);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [showSkills, setShowSkills] = useState(false);
+  const [skills, setSkills] = useState<{ name: string; path: string; description: string }[]>([]);
+  const [skillsLoading, setSkillsLoading] = useState(false);
+
+  const loadSkills = async () => {
+    if (!projectPath || typeof window === 'undefined' || !(window as any).require) return;
+    setSkillsLoading(true);
+    try {
+      const { ipcRenderer } = (window as any).require('electron');
+      const result = await ipcRenderer.invoke('agent:list-skills', projectPath);
+      setSkills(result || []);
+    } catch { setSkills([]); }
+    setSkillsLoading(false);
+  };
 
   const handleOpenProject = async () => {
     if (typeof window !== 'undefined' && (window as any).require) {
@@ -122,10 +139,36 @@ export const Sidebar: React.FC = () => {
           <Clock className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           Automations
         </button>
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors">
+        <button
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
+            showSkills && 'bg-secondary',
+          )}
+          onClick={() => { setShowSkills(!showSkills); if (!showSkills) loadSkills(); }}
+        >
           <LayoutGrid className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           Skills
         </button>
+        {showSkills && (
+          <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
+            {skillsLoading && <p className="text-[11px] text-muted-foreground/60 py-1">Loading...</p>}
+            {!skillsLoading && skills.length === 0 && (
+              <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
+                <p>No skills found.</p>
+                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code></p>
+              </div>
+            )}
+            {skills.map((skill) => (
+              <div key={skill.name} className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
+                <LayoutGrid className="w-3 h-3 text-primary mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="font-medium text-foreground truncate">{skill.name}</p>
+                  {skill.description && <p className="text-muted-foreground truncate">{skill.description}</p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </nav>
 
       {/* Threads section */}
@@ -182,7 +225,32 @@ export const Sidebar: React.FC = () => {
                       onClick={() => setActiveThread(thread.id)}
                     >
                       <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', statusDot[thread.status] || statusDot.idle)} />
-                      <span className="truncate flex-1">{thread.title}</span>
+                      {editingThreadId === thread.id ? (
+                        <input
+                          className="flex-1 bg-transparent text-sm outline-none border-b border-primary px-0 py-0 min-w-0"
+                          value={editingTitle}
+                          onChange={(e) => setEditingTitle(e.target.value)}
+                          onBlur={() => {
+                            if (editingTitle.trim()) updateThread(thread.id, { title: editingTitle.trim() });
+                            setEditingThreadId(null);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') { (e.target as HTMLInputElement).blur(); }
+                            if (e.key === 'Escape') { setEditingThreadId(null); }
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                          autoFocus
+                        />
+                      ) : (
+                        <span
+                          className="truncate flex-1"
+                          onDoubleClick={(e) => {
+                            e.stopPropagation();
+                            setEditingThreadId(thread.id);
+                            setEditingTitle(thread.title);
+                          }}
+                        >{thread.title}</span>
+                      )}
                       <button
                         className="hidden group-hover:block text-muted-foreground hover:text-destructive transition-colors"
                         onClick={(e) => { e.stopPropagation(); removeThread(thread.id); }}

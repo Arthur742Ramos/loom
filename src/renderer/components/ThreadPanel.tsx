@@ -144,6 +144,8 @@ export const ThreadPanel: React.FC = () => {
   const [userInputAnswer, setUserInputAnswer] = useState('');
   const [agentStatus, setAgentStatus] = useState('');
   const [thinkingContent, setThinkingContent] = useState('');
+  const [editingTitle, setEditingTitle] = useState(false);
+  const [titleDraft, setTitleDraft] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -315,7 +317,28 @@ export const ThreadPanel: React.FC = () => {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
       {/* Header — Codex style */}
       <div className="flex items-center justify-between px-8 pt-7 pb-4 shrink-0">
-        <h2 className="text-xl font-semibold text-foreground">{thread.title}</h2>
+        {editingTitle ? (
+          <input
+            className="text-xl font-semibold text-foreground bg-transparent outline-none border-b-2 border-primary min-w-[120px]"
+            value={titleDraft}
+            onChange={(e) => setTitleDraft(e.target.value)}
+            onBlur={() => {
+              if (titleDraft.trim()) updateThread(thread.id, { title: titleDraft.trim() });
+              setEditingTitle(false);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+              if (e.key === 'Escape') setEditingTitle(false);
+            }}
+            autoFocus
+          />
+        ) : (
+          <h2
+            className="text-xl font-semibold text-foreground cursor-pointer hover:text-primary/80 transition-colors"
+            onDoubleClick={() => { setEditingTitle(true); setTitleDraft(thread.title); }}
+            title="Double-click to rename"
+          >{thread.title}</h2>
+        )}
         <div className="flex gap-0.5 bg-secondary rounded-lg p-1">
           <button
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',

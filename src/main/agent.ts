@@ -1,5 +1,7 @@
 import { ipcMain } from 'electron';
 import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Agent backend — powered by @github/copilot-sdk.
@@ -144,6 +146,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     model: request.model,
     reasoningEffort: request.reasoningEffort,
     workingDirectory: request.context?.cwd,
+    configDir: request.context?.cwd,
     streaming: true,
     onPermissionRequest,
     onUserInputRequest,
@@ -332,6 +335,32 @@ export function setupAgentHandlers() {
     } finally {
       inFlightSessions.delete(threadId);
     }
+  });
+
+  // List skill files discovered in the project directory.
+  ipcMain.handle('agent:list-skills', async (_event, projectPath: string) => {
+    const skillDirs = [
+      path.join(projectPath, '.github', 'copilot', 'skills'),
+      path.join(projectPath, '.copilot', 'skills'),
+    ];
+    const skills: { name: string; path: string; description: string }[] = [];
+    for (const dir of skillDirs) {
+      try {
+        if (!fs.existsSync(dir)) continue;
+        const files = fs.readdirSync(dir).filter(f => f.endsWith('.md'));
+        for (const file of files) {
+          const filePath = path.join(dir, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
+          const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || '';
+          skills.push({
+            name: file.replace(/\.md$/, ''),
+            path: filePath,
+            description: firstLine.substring(0, 100),
+          });
+        }
+      } catch { /* dir not readable */ }
+    }
+    return skills;
   });
 }
 
