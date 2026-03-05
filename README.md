@@ -91,11 +91,12 @@ flowchart LR
 
 ## 🔄 Deep Review Sweep (Mar 2026)
 
-- ♻️ Code quality: removed dead code, tightened IPC typing, and centralized preload channel constants.
-- ✨ UX/UI polish: improved loading/empty states, keyboard/focus behavior, and responsive composition.
-- ⚡ Performance: reduced avoidable renderer updates in high-interaction components.
-- 🧱 Robustness: strengthened request/event validation and safer terminal error handling.
-- 🧪 Testing: expanded unit edge-case coverage and refreshed Electron visual baselines.
+- ♻️ Code quality: consolidated duplicated thread/message mutation helpers, removed dead code, and tightened TypeScript boundaries.
+- ✨ UX/UI polish: refined spacing/alignment, hover/transition states, and loading/empty/error treatments across core panels.
+- ♿ Accessibility: added missing aria labels/states, improved tab keyboard navigation, and strengthened visible focus indicators.
+- ⚡ Performance: optimized hot React/Zustand selectors (`useShallow`), debounced sidebar filtering, lazy-loaded heavy panels, and batched high-frequency stream IPC events.
+- 🧱 Robustness: preserved request-scoped stream isolation (`threadId` + `requestId`) while safely handling batched renderer stream payloads.
+- 🧪 Testing & visuals: full `npm run test:ci` gate passed and Electron visual baselines plus `screenshots/ui-polish-*-before|after.png` captures were refreshed.
 
 ## 📦 Installation
 
