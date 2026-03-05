@@ -46,6 +46,30 @@ flowchart LR
 | --- | --- |
 | ![Settings](screenshots/settings-panel.png) | ![Diff Viewer](screenshots/diff-viewer.png) |
 
+### UI polish before/after (deep review sweep)
+
+| Sidebar (before) | Sidebar (after) |
+| --- | --- |
+| ![Sidebar before](screenshots/ui-polish-sidebar-before.png) | ![Sidebar after](screenshots/ui-polish-sidebar-after.png) |
+
+| Thread Panel (before) | Thread Panel (after) |
+| --- | --- |
+| ![Thread Panel before](screenshots/ui-polish-thread-panel-before.png) | ![Thread Panel after](screenshots/ui-polish-thread-panel-after.png) |
+
+| Settings (before) | Settings (after) |
+| --- | --- |
+| ![Settings before](screenshots/ui-polish-settings-panel-before.png) | ![Settings after](screenshots/ui-polish-settings-panel-after.png) |
+
+| Diff Viewer (before) | Diff Viewer (after) |
+| --- | --- |
+| ![Diff Viewer before](screenshots/ui-polish-diff-viewer-before.png) | ![Diff Viewer after](screenshots/ui-polish-diff-viewer-after.png) |
+
+### Agent/skill invocation fix
+
+| Skills Sidebar | Thread Invocation |
+| --- | --- |
+| ![Agent + Skill Sidebar](screenshots/agent-skill-sidebar-fixed.png) | ![Agent + Skill Thread](screenshots/agent-skill-thread-fixed.png) |
+
 ## ✨ Feature Highlights
 
 - 🧵 **Parallel threads** with per-thread chat, terminal, and status
@@ -54,6 +78,22 @@ flowchart LR
 - 🌲 **Built-in Git workflows** (status, diff, stage, commit, worktrees)
 - 🔐 **Permission & input flows** surfaced directly in-thread
 - 🧪 **Deterministic test mode** for stable e2e/visual coverage
+
+## 🛡️ Reliability Hardening
+
+- Terminal creation failures (invalid shell/cwd) return structured IPC errors instead of crashing.
+- Sidebar async loaders (skills, agents, MCP servers) ignore stale responses after project switches.
+- Runtime sessions now load project skills from `.github/copilot/skills` and `.copilot/skills` via `skillDirectories`.
+- `@agent ... @skill ...` mentions are forwarded unchanged in prompt text, matching Copilot SDK message semantics.
+- Test-only main-process IPC handlers are registered idempotently and guard unavailable windows.
+
+## 🔄 Deep Review Sweep (Mar 2026)
+
+- ♻️ Code quality: removed dead code, tightened IPC typing, and centralized preload channel constants.
+- ✨ UX/UI polish: improved loading/empty states, keyboard/focus behavior, and responsive composition.
+- ⚡ Performance: reduced avoidable renderer updates in high-interaction components.
+- 🧱 Robustness: strengthened request/event validation and safer terminal error handling.
+- 🧪 Testing: expanded unit edge-case coverage and refreshed Electron visual baselines.
 
 ## 📦 Installation
 
@@ -110,6 +150,9 @@ npm run test:unit
 # Electron e2e
 npm run test:e2e
 
+# Stream isolation regression
+npm run test:e2e -- tests/e2e/thread-stream-isolation.spec.ts
+
 # Playwright visual regression
 npm run test:visual
 ```
@@ -120,6 +163,8 @@ Refresh intentionally with:
 ```bash
 xvfb-run -a playwright test tests/visual/ui-regression.spec.ts --project=electron-visual --update-snapshots
 ```
+
+Descriptive sweep captures are stored in `screenshots/ui-polish-*-before.png` and `screenshots/ui-polish-*-after.png`.
 
 ## 🔐 Authentication
 
