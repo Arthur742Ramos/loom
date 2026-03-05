@@ -19,6 +19,7 @@ An agentic desktop coding app powered by GitHub Copilot — weaving thread-based
 - **Multi-agent orchestration** — run agents simultaneously in worktrees
 - **Stream-safe responses** — request-scoped streaming prevents cross-thread bleed during concurrent runs
 - **Reasoning + tool traces** — model thinking blocks and tool call results render inline per assistant message
+- **Per-thread token counter** — compact cumulative token badge with prompt/completion/cache breakdown tooltip
 - **Built-in Git** — diff viewer, staging, commits, worktree management
 - **Integrated terminal** — per-thread terminal powered by xterm.js
 - **GitHub Copilot backend** — uses your Copilot account for AI
@@ -95,6 +96,7 @@ npm run test:visual
   - Screenshot regression checks for sidebar, thread panel, settings panel, and diff viewer
 
 Visual baselines are committed under `tests/__screenshots__/electron-visual/`.
+Recent token-counter captures are stored in `screenshots/token-counter-thread-panel.png` and `screenshots/token-counter-full.png`.
 To refresh snapshots intentionally:
 
 ```bash
@@ -114,7 +116,7 @@ Thread stream integrity coverage is in `tests/e2e/thread-stream-isolation.spec.t
 Deterministic Electron stream tests can be scripted with:
 - `LOOM_TEST_MODE=1`
 - `LOOM_TEST_AGENT_RESPONSE` (fallback response text)
-- `LOOM_TEST_AGENT_SCRIPT` (or `LOOM_TEST_AGENT_EVENTS`) as JSON events (`status`, `thinking`, `tool_start`, `tool_end`, `chunk`, `done`, `error`) with optional `delayMs`
+- `LOOM_TEST_AGENT_SCRIPT` (or `LOOM_TEST_AGENT_EVENTS`) as JSON events (`status`, `thinking`, `tool_start`, `tool_end`, `chunk`, `usage`, `done`, `error`) with optional `delayMs`
 
 ### CI
 
