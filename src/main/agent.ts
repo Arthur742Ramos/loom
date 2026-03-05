@@ -79,8 +79,9 @@ export function getThreadLockCountForTests(): number {
 }
 
 interface NormalizedMcpServerConfig {
-  command: string;
-  args: string[];
+  command?: string;
+  url?: string;
+  args?: string[];
   env?: Record<string, string>;
   tools: string[];
   type?: string;
@@ -98,7 +99,7 @@ interface AgentRequest {
   model?: string;
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   permissionMode?: 'ask' | 'auto' | 'deny';
-  mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+  mcpServers?: Record<string, { command?: string; url?: string; args?: string[]; env?: Record<string, string> }>;
   customAgents?: { name: string; displayName?: string; description?: string; prompt: string; tools?: string[] | null }[];
 }
 
@@ -307,7 +308,10 @@ export function normalizeMcpServerConfig(config: unknown): NormalizedMcpServerCo
   if (!isPlainObject(config)) return null;
 
   const command = typeof config.command === 'string' ? config.command.trim() : '';
-  if (!command) return null;
+  const url = typeof config.url === 'string' ? config.url.trim() : '';
+
+  // Must have exactly one of command or url.
+  if (!command && !url) return null;
 
   const args = config.args === undefined ? [] : toStringArray(config.args);
   if (!args) return null;
@@ -319,8 +323,7 @@ export function normalizeMcpServerConfig(config: unknown): NormalizedMcpServerCo
   if (config.env !== undefined && !env) return null;
 
   const result: NormalizedMcpServerConfig = {
-    command,
-    args,
+    ...(command ? { command, args } : { url }),
     tools,
     ...(env ? { env } : {}),
   };
@@ -1060,5 +1063,11 @@ export function setupAgentHandlers() {
   ipcMain.handle('agent:list-project-mcp', async (_event, projectPath: string) => {
     return loadMcpFromProject(projectPath);
   });
+
+  // Warm up the SDK client in the background so the first user message doesn't
+  // pay the cost of dynamic import + CLI process spawn.
+  if (process.env.LOOM_TEST_MODE !== '1') {
+    getClient().catch(() => {});
+  }
 }
 

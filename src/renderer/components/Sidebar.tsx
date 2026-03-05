@@ -15,7 +15,8 @@ interface MentionableEntry {
 }
 
 interface ProjectMcpServer {
-  command: string;
+  command?: string;
+  url?: string;
   args?: string[];
 }
 
@@ -70,12 +71,17 @@ const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> =
   for (const [name, config] of Object.entries(value)) {
     if (typeof config !== 'object' || config === null) continue;
     const command = (config as ProjectMcpServer).command;
+    const url = (config as ProjectMcpServer).url;
     const args = (config as ProjectMcpServer).args;
-    if (typeof command !== 'string') continue;
+    if (typeof command !== 'string' && typeof url !== 'string') continue;
     if (args !== undefined && (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string'))) {
       continue;
     }
-    result[name] = { command, ...(args ? { args } : {}) };
+    result[name] = {
+      ...(typeof command === 'string' ? { command } : {}),
+      ...(typeof url === 'string' ? { url } : {}),
+      ...(args ? { args } : {}),
+    };
   }
   return result;
 };
@@ -128,7 +134,7 @@ export const Sidebar: React.FC = () => {
   const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUri: string } | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
-  const [mcpForm, setMcpForm] = useState({ name: '', command: '', args: '' });
+  const [mcpForm, setMcpForm] = useState({ name: '', command: '', url: '', args: '' });
   const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServer>>({});
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<MentionableEntry[]>([]);
@@ -423,7 +429,7 @@ export const Sidebar: React.FC = () => {
                 <span className="text-blue-400">●</span>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-foreground truncate">{name}</p>
-                  <p className="text-muted-foreground truncate font-mono text-[10px]">{config.command} {config.args?.join(' ') || ''}</p>
+                  <p className="text-muted-foreground truncate font-mono text-[10px]">{config.url || `${config.command} ${config.args?.join(' ') || ''}`}</p>
                 </div>
               </div>
             ))}
@@ -436,7 +442,7 @@ export const Sidebar: React.FC = () => {
                 <span className="text-green-500">●</span>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-foreground truncate">{name}</p>
-                  <p className="text-muted-foreground truncate font-mono text-[10px]">{config.command} {config.args?.join(' ') || ''}</p>
+                  <p className="text-muted-foreground truncate font-mono text-[10px]">{config.url || `${config.command} ${config.args?.join(' ') || ''}`}</p>
                 </div>
                 <button
                   aria-label={`Remove MCP server ${name}`}
@@ -459,7 +465,13 @@ export const Sidebar: React.FC = () => {
                 className="w-full px-2 py-1 text-[11px] bg-secondary/60 border rounded text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary font-mono"
                 placeholder="Command (e.g. npx -y @mcp/server)"
                 value={mcpForm.command}
-                onChange={(e) => setMcpForm(f => ({ ...f, command: e.target.value }))}
+                onChange={(e) => setMcpForm(f => ({ ...f, command: e.target.value, url: '' }))}
+              />
+              <input
+                className="w-full px-2 py-1 text-[11px] bg-secondary/60 border rounded text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary font-mono"
+                placeholder="— or URL (e.g. https://mcp.example.com/sse)"
+                value={mcpForm.url}
+                onChange={(e) => setMcpForm(f => ({ ...f, url: e.target.value, command: '' }))}
               />
               <input
                 className="w-full px-2 py-1 text-[11px] bg-secondary/60 border rounded text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary font-mono"
@@ -469,14 +481,16 @@ export const Sidebar: React.FC = () => {
               />
               <button
                 className="w-full px-2 py-1.5 text-[11px] font-medium bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity disabled:opacity-50"
-                disabled={!mcpForm.name.trim() || !mcpForm.command.trim()}
+                disabled={!mcpForm.name.trim() || (!mcpForm.command.trim() && !mcpForm.url.trim())}
                 onClick={() => {
+                  const isUrl = !!mcpForm.url.trim();
                   addMcpServer(mcpForm.name.trim(), {
-                    command: mcpForm.command.trim(),
-                    args: mcpForm.args.trim() ? mcpForm.args.trim().split(/\s+/) : [],
+                    ...(isUrl
+                      ? { url: mcpForm.url.trim() }
+                      : { command: mcpForm.command.trim(), args: mcpForm.args.trim() ? mcpForm.args.trim().split(/\s+/) : [] }),
                     tools: ['*'],
                   });
-                  setMcpForm({ name: '', command: '', args: '' });
+                  setMcpForm({ name: '', command: '', url: '', args: '' });
                 }}
               >
                 Add Server

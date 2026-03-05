@@ -67,7 +67,8 @@ export interface ProjectEntry {
 }
 
 export interface McpServerConfig {
-  command: string;
+  command?: string;
+  url?: string;
   args?: string[];
   env?: Record<string, string>;
   tools?: string[];
