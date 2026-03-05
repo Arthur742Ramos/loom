@@ -5,7 +5,7 @@ import { Badge } from './ui/badge';
 import { ScrollArea } from './ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import {
-  MessageSquare, GitCompare, TerminalSquare, Send, RefreshCw, ChevronDown, Check, Loader2,
+  MessageSquare, GitCompare, TerminalSquare, Send, RefreshCw, ChevronDown, Check, Loader2, Square,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MarkdownMessage } from './MarkdownMessage';
@@ -154,6 +154,7 @@ export const ThreadPanel: React.FC = () => {
   const permissionMode = useAppStore((s) => s.permissionMode);
   const setPermissionMode = useAppStore((s) => s.setPermissionMode);
   const mcpServers = useAppStore((s) => s.mcpServers);
+  const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
   const [input, setInput] = useState('');
   const [pendingPermission, setPendingPermission] = useState<{
     kind: string; toolName?: string; toolArgs?: any; replyChannel: string;
@@ -196,40 +197,36 @@ export const ThreadPanel: React.FC = () => {
 
   // Listen for permission requests from the agent backend.
   useEffect(() => {
-    if (typeof window === 'undefined' || !(window as any).require) return;
-    const { ipcRenderer } = (window as any).require('electron');
-    const handler = (_: any, threadId: string, data: any) => {
+    const api = window.electronAPI;
+    if (!api) return;
+    const unsub = api.on('agent:permission-request', (threadId: string, data: any) => {
       if (threadId !== activeThreadId) return;
       setPendingPermission(data);
-    };
-    ipcRenderer.on('agent:permission-request', handler);
-    return () => { ipcRenderer.removeListener('agent:permission-request', handler); };
+    });
+    return unsub;
   }, [activeThreadId]);
 
   const respondToPermission = (approved: boolean) => {
     if (!pendingPermission) return;
-    const { ipcRenderer } = (window as any).require('electron');
-    ipcRenderer.send(pendingPermission.replyChannel, approved);
+    window.electronAPI?.sendReply(pendingPermission.replyChannel, approved);
     setPendingPermission(null);
   };
 
   // Listen for user-input requests (ask_user tool) from the agent backend.
   useEffect(() => {
-    if (typeof window === 'undefined' || !(window as any).require) return;
-    const { ipcRenderer } = (window as any).require('electron');
-    const handler = (_: any, threadId: string, data: any) => {
+    const api = window.electronAPI;
+    if (!api) return;
+    const unsub = api.on('agent:user-input-request', (threadId: string, data: any) => {
       if (threadId !== activeThreadId) return;
       setPendingUserInput(data);
       setUserInputAnswer('');
-    };
-    ipcRenderer.on('agent:user-input-request', handler);
-    return () => { ipcRenderer.removeListener('agent:user-input-request', handler); };
+    });
+    return unsub;
   }, [activeThreadId]);
 
   const respondToUserInput = (answer: string) => {
     if (!pendingUserInput) return;
-    const { ipcRenderer } = (window as any).require('electron');
-    ipcRenderer.send(pendingUserInput.replyChannel, answer);
+    window.electronAPI?.sendReply(pendingUserInput.replyChannel, answer);
     setPendingUserInput(null);
     setUserInputAnswer('');
   };
@@ -240,6 +237,11 @@ export const ThreadPanel: React.FC = () => {
 
   const showFullThinking = (messageId: string) => {
     setExpandedFullThinkingByMessage((prev) => ({ ...prev, [messageId]: true }));
+  };
+
+  const handleCancel = () => {
+    if (!thread || !activeThreadId) return;
+    window.electronAPI?.send('agent:cancel', activeThreadId);
   };
 
   const handleSend = () => {
@@ -273,13 +275,13 @@ export const ThreadPanel: React.FC = () => {
     setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
     setInput('');
 
-    if (typeof window !== 'undefined' && (window as any).require) {
-      const { ipcRenderer } = (window as any).require('electron');
+    if (window.electronAPI) {
+      const api = window.electronAPI;
       activeRequestIdByThreadRef.current[threadId] = requestId;
       let chunkBuffer = '';
       let rafId: number | null = null;
       let cleanedUp = false;
-      let handler: (_: any, streamThreadId: string, data: any) => void;
+      let unsub: (() => void) | undefined;
 
       const flushChunks = () => {
         rafId = null;
@@ -300,7 +302,7 @@ export const ThreadPanel: React.FC = () => {
           appendToMessage(threadId, assistantMsgId, chunkBuffer);
           chunkBuffer = '';
         }
-        ipcRenderer.removeListener('agent:stream', handler);
+        unsub?.();
         if (streamCleanupByThreadRef.current[threadId] === cleanup) {
           delete streamCleanupByThreadRef.current[threadId];
         }
@@ -309,7 +311,7 @@ export const ThreadPanel: React.FC = () => {
         }
       };
 
-      handler = (_: any, streamThreadId: string, data: any) => {
+      const handler = (streamThreadId: string, data: any) => {
         if (streamThreadId !== threadId) return;
         if (data?.requestId && data.requestId !== requestId) return;
         if (activeRequestIdByThreadRef.current[threadId] !== requestId) return;
@@ -350,9 +352,6 @@ export const ThreadPanel: React.FC = () => {
           setAgentStatusMap((prev) => ({ ...prev, [threadId]: data.status || '' }));
         } else if (data.type === 'done') {
           cleanup(true);
-          // Always prefer the final authoritative content from the SDK.
-          // Streamed deltas may include intermediate tool output that
-          // differs from the clean final assistant message.
           if (typeof data.content === 'string' && data.content.length > 0) {
             updateMessage(threadId, assistantMsgId, { content: data.content });
           }
@@ -367,8 +366,8 @@ export const ThreadPanel: React.FC = () => {
         }
       };
       streamCleanupByThreadRef.current[threadId] = cleanup;
-      ipcRenderer.on('agent:stream', handler);
-      ipcRenderer.send('agent:send', {
+      unsub = api.on('agent:stream', handler);
+      api.send('agent:send', {
         threadId,
         requestId,
         cliSessionId: thread.cliSessionId,
@@ -575,7 +574,7 @@ export const ThreadPanel: React.FC = () => {
                                     )}
                                     <span className="truncate">{toolCall.toolName}</span>
                                   </div>
-                                  {toolCall.result && (
+                                  {showToolOutputDetails && toolCall.result && (
                                     <div className="pl-5 mt-0.5 text-muted-foreground/70 whitespace-pre-wrap break-words">
                                       {toolCall.result}
                                     </div>
@@ -690,6 +689,7 @@ export const ThreadPanel: React.FC = () => {
             <div className="flex items-end bg-secondary/60 border rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
               <textarea
                 data-testid="thread-input"
+                data-loom-chat-input="true"
                 ref={inputRef}
                 className="flex-1 px-3.5 py-2.5 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
                 placeholder="Ask Copilot to work on something..."
@@ -698,15 +698,27 @@ export const ThreadPanel: React.FC = () => {
                 onKeyDown={handleKeyDown}
                 rows={1}
               />
-              <Button
-                data-testid="thread-send"
-                size="icon"
-                className="h-9 w-9 rounded-[10px] shrink-0"
-                onClick={handleSend}
-                disabled={!input.trim() || thread.status === 'running'}
-              >
-                <Send className="w-4 h-4" />
-              </Button>
+              {thread.status === 'running' ? (
+                <Button
+                  data-testid="thread-stop"
+                  size="icon"
+                  variant="destructive"
+                  className="h-9 w-9 rounded-[10px] shrink-0"
+                  onClick={handleCancel}
+                >
+                  <Square className="w-4 h-4" />
+                </Button>
+              ) : (
+                <Button
+                  data-testid="thread-send"
+                  size="icon"
+                  className="h-9 w-9 rounded-[10px] shrink-0"
+                  onClick={handleSend}
+                  disabled={!input.trim()}
+                >
+                  <Send className="w-4 h-4" />
+                </Button>
+              )}
             </div>
             <div className="flex items-center justify-between mt-1.5 px-1">
               <div className="flex items-center gap-2">
@@ -783,12 +795,17 @@ const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
 
   const loadDiff = async () => {
     setLoading(true);
-    if (typeof window !== 'undefined' && (window as any).require) {
-      const { ipcRenderer } = (window as any).require('electron');
-      const result = await ipcRenderer.invoke('git:diff', projectPath, staged);
-      const parsed = result.files || [];
-      setFiles(parsed);
-      setExpandedFiles(new Set(parsed.map((f: any) => f.path)));
+    try {
+      const api = window.electronAPI;
+      if (api) {
+        const result = await api.invoke('git:diff', projectPath, staged);
+        const parsed = result.files || [];
+        setFiles(parsed);
+        setExpandedFiles(new Set(parsed.map((f: any) => f.path)));
+      }
+    } catch (err) {
+      console.error('Failed to load diff:', err);
+      setFiles([]);
     }
     setLoading(false);
   };
@@ -911,6 +928,7 @@ const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
 const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ threadId, projectPath }) => {
   const termRef = useRef<HTMLDivElement>(null);
   const [connected, setConnected] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!termRef.current) return;
@@ -952,15 +970,18 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
         term.open(termRef.current!);
         fitAddon.fit();
 
-        if (typeof window !== 'undefined' && (window as any).require) {
-          const { ipcRenderer } = (window as any).require('electron');
-          const result = await ipcRenderer.invoke('terminal:create', threadId, projectPath);
+        const api = window.electronAPI;
+        if (api) {
+          const result = await api.invoke('terminal:create', threadId, projectPath);
           if (result.pid) {
             setConnected(true);
-            term.onData((data: string) => ipcRenderer.send('terminal:data', threadId, data));
-            ipcRenderer.on('terminal:data', (_: any, id: string, data: string) => {
+            term.onData((data: string) => api.send('terminal:data', threadId, data));
+            const unsub = api.on('terminal:data', (id: string, data: string) => {
               if (id === threadId) term.write(data);
             });
+            const ro = new ResizeObserver(() => fitAddon.fit());
+            ro.observe(termRef.current!);
+            return () => { unsub(); ro.disconnect(); term.dispose(); };
           }
         } else {
           term.write('Terminal available in desktop mode\r\n$ ');
@@ -972,6 +993,7 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
         return () => { ro.disconnect(); term.dispose(); };
       } catch (err) {
         console.error('Terminal init error:', err);
+        setError(err instanceof Error ? err.message : 'Failed to initialize terminal');
       }
     };
     initTerminal();
@@ -980,9 +1002,14 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
   return (
     <div className="flex-1 flex flex-col relative bg-background">
       <div className="flex-1 p-2 bg-[#1a1b26]" ref={termRef} />
-      {!connected && (
+      {!connected && !error && (
         <div className="absolute inset-0 flex items-center justify-center bg-[#1a1b26] text-[#c0caf5] text-sm">
           Connecting terminal...
+        </div>
+      )}
+      {error && (
+        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1b26] text-red-400 text-sm px-4 text-center">
+          Terminal error: {error}
         </div>
       )}
     </div>

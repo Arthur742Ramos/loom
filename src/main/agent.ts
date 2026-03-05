@@ -22,6 +22,8 @@ const threadSessionIds = new Map<string, string>();
 // Track in-flight sessions for cancellation.
 const inFlightSessions = new Map<string, any>();
 const canceledThreads = new Set<string>();
+// Serialize per-thread requests — each thread gets a queue lock.
+const threadLocks = new Map<string, Promise<void>>();
 
 interface AgentRequest {
   threadId: string;
@@ -208,35 +210,53 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     }
     // Ask mode — send to renderer and await user decision.
     return new Promise<any>((resolve) => {
+      let resolved = false;
       const replyChannel = `agent:permission-reply:${request.threadId}:${Date.now()}`;
+      const handler = (_: any, approved: boolean) => {
+        if (resolved) return;
+        resolved = true;
+        resolve(approved
+          ? { kind: 'approved' }
+          : { kind: 'denied-interactively-by-user' });
+      };
       sender.send('agent:permission-request', request.threadId, {
         ...req,
         replyChannel,
       });
-      ipcMain.once(replyChannel, (_: any, approved: boolean) => {
-        resolve(approved
-          ? { kind: 'approved' }
-          : { kind: 'denied-interactively-by-user' });
-      });
+      ipcMain.once(replyChannel, handler);
       // Auto-deny after 120s if user doesn't respond.
-      setTimeout(() => resolve({ kind: 'denied-interactively-by-user' }), 120000);
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        ipcMain.removeListener(replyChannel, handler);
+        resolve({ kind: 'denied-interactively-by-user' });
+      }, 120000);
     });
   };
 
   // User-input handler: forward ask_user requests to the renderer.
   const onUserInputRequest = async (req: any) => {
     return new Promise<any>((resolve) => {
+      let resolved = false;
       const replyChannel = `agent:user-input-reply:${request.threadId}:${Date.now()}`;
+      const handler = (_: any, answer: string) => {
+        if (resolved) return;
+        resolved = true;
+        resolve({ answer, wasFreeform: true });
+      };
       sender.send('agent:user-input-request', request.threadId, {
         question: req.question,
         choices: req.choices,
         allowFreeform: req.allowFreeform,
         replyChannel,
       });
-      ipcMain.once(replyChannel, (_: any, answer: string) => {
-        resolve({ answer, wasFreeform: true });
-      });
-      setTimeout(() => resolve({ answer: '', wasFreeform: true }), 120000);
+      ipcMain.once(replyChannel, handler);
+      setTimeout(() => {
+        if (resolved) return;
+        resolved = true;
+        ipcMain.removeListener(replyChannel, handler);
+        resolve({ answer: '', wasFreeform: true });
+      }, 120000);
     });
   };
 
@@ -294,6 +314,13 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
 
 export function setupAgentHandlers() {
   ipcMain.on('agent:send', async (event, request: AgentRequest) => {
+    // Serialize requests per thread to prevent concurrent execution races.
+    const prevLock = threadLocks.get(request.threadId) || Promise.resolve();
+    let releaseLock: () => void;
+    const lock = new Promise<void>((resolve) => { releaseLock = resolve; });
+    threadLocks.set(request.threadId, lock);
+    await prevLock;
+
     if (process.env.LOOM_TEST_MODE === '1') {
       const mockContent = process.env.LOOM_TEST_AGENT_RESPONSE || `Mock response: ${request.message}`;
       const scriptedEvents = getScriptedTestEvents(request);
@@ -316,6 +343,7 @@ export function setupAgentHandlers() {
         sendStream(event.sender, request, { type: 'chunk', content: mockContent });
         sendStream(event.sender, request, { type: 'done', content: mockContent });
       }
+      releaseLock!();
       return;
     }
 
@@ -342,6 +370,8 @@ export function setupAgentHandlers() {
         const nextFallbackToolCallId = () => `tc-${++toolCallCounter}`;
         unsubscribe = session.on((evt: any) => {
           if (evt.type === 'assistant.message_delta') {
+            // Skip sub-agent responses — they belong to tool call output, not the main message.
+            if (evt.data?.parentToolCallId) return;
             const content = evt.data?.deltaContent || evt.data?.content || '';
             if (content) {
               sendStream(event.sender, request, { type: 'chunk', content });
@@ -403,7 +433,7 @@ export function setupAgentHandlers() {
           }
         });
 
-        const result = await session.sendAndWait({ prompt: request.message }, 300000);
+        const result = await session.sendAndWait({ prompt: request.message });
         // Send the final complete content so the renderer can fill in any
         // gaps left by streaming deltas (e.g. tool-heavy agentic responses).
         const finalContent = result?.data?.content;
@@ -449,6 +479,8 @@ export function setupAgentHandlers() {
         type: 'error',
         content: err.message || `Failed to initialize Copilot SDK: ${err}`,
       });
+    } finally {
+      releaseLock!();
     }
   });
 
