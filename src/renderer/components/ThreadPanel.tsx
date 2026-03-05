@@ -117,6 +117,22 @@ const ModelPicker: React.FC<{
   );
 };
 
+const THINKING_SUMMARY_LIMIT = 60;
+const THINKING_PREVIEW_LIMIT = 500;
+
+const summarizeThinking = (thinking: string): string => {
+  const normalized = thinking.replace(/\s+/g, ' ').trim();
+  if (!normalized) return 'Thinking...';
+  return normalized.length > THINKING_SUMMARY_LIMIT
+    ? `${normalized.slice(0, THINKING_SUMMARY_LIMIT)}…`
+    : normalized;
+};
+
+const previewThinking = (thinking: string, showFull: boolean): string => {
+  if (showFull || thinking.length <= THINKING_PREVIEW_LIMIT) return thinking;
+  return `${thinking.slice(0, THINKING_PREVIEW_LIMIT)}…`;
+};
+
 export const ThreadPanel: React.FC = () => {
   const activeThreadId = useAppStore((s) => s.activeThreadId);
   const threads = useAppStore((s) => s.threads);
@@ -149,6 +165,8 @@ export const ThreadPanel: React.FC = () => {
   const [agentStatusMap, setAgentStatusMap] = useState<Record<string, string>>({});
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
+  const [expandedThinkingByMessage, setExpandedThinkingByMessage] = useState<Record<string, boolean>>({});
+  const [expandedFullThinkingByMessage, setExpandedFullThinkingByMessage] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -214,6 +232,14 @@ export const ThreadPanel: React.FC = () => {
     ipcRenderer.send(pendingUserInput.replyChannel, answer);
     setPendingUserInput(null);
     setUserInputAnswer('');
+  };
+
+  const toggleThinking = (messageId: string) => {
+    setExpandedThinkingByMessage((prev) => ({ ...prev, [messageId]: !prev[messageId] }));
+  };
+
+  const showFullThinking = (messageId: string) => {
+    setExpandedFullThinkingByMessage((prev) => ({ ...prev, [messageId]: true }));
   };
 
   const handleSend = () => {
@@ -444,100 +470,150 @@ export const ThreadPanel: React.FC = () => {
                   <p className="text-muted-foreground/60 text-xs">Copilot can write code, run commands, review diffs, and more</p>
                 </div>
               )}
-              {thread.messages.map((msg) => (
-                <div key={msg.id} className={cn('flex gap-3 py-3.5', msg.id !== thread.messages[0]?.id && 'border-t')}>
-                  <Avatar className="h-7 w-7 shrink-0">
-                    {msg.role === 'user' && githubUser?.avatar_url ? (
-                      <AvatarImage src={githubUser.avatar_url} alt={githubUser.login} />
-                    ) : null}
-                    <AvatarFallback className={cn(
-                      msg.role === 'user'
-                        ? 'bg-muted text-muted-foreground text-xs'
-                        : 'bg-primary/10 text-primary text-xs',
-                    )}>
-                      {msg.role === 'user'
-                        ? (githubUser?.login?.[0]?.toUpperCase() || 'U')
-                        : <LoomIcon className="w-3.5 h-3.5" />}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex-1 min-w-0">
-                    <span className="text-xs font-medium text-muted-foreground block mb-0.5">
-                      {msg.role === 'user'
-                        ? (githubUser?.name || githubUser?.login || 'You')
-                        : 'Copilot'}
-                    </span>
-                    {msg.role === 'assistant' && msg.content && msg.status !== 'streaming' ? (
-                      <MarkdownMessage
-                        content={msg.content}
-                        className="text-[13.5px] leading-relaxed text-foreground select-text"
-                      />
-                    ) : (
-                      <div className="text-[13.5px] leading-relaxed text-foreground whitespace-pre-wrap break-words select-text">
-                        {msg.content || (msg.status === 'streaming' && (
-                          <span className="inline-flex gap-1 py-1">
-                            <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                            <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                            <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                          </span>
-                        ))}
-                      </div>
-                    )}
-                    {msg.status === 'error' && (
-                      <span className="text-destructive text-[11px] mt-1 block">Failed</span>
-                    )}
-                    {(msg.role === 'assistant' && (msg.toolCalls?.length || msg.thinking
-                      || (msg.status === 'streaming' && msg === thread.messages[thread.messages.length - 1] && agentStatus))) && (
-                      <div className="mt-2 space-y-1.5">
-                        {msg.status === 'streaming' && msg === thread.messages[thread.messages.length - 1] && agentStatus && (
-                          <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                            <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                            <span className="truncate">{agentStatus}</span>
-                          </div>
-                        )}
-                        {msg.toolCalls && msg.toolCalls.length > 0 && (
-                          <div className="space-y-1">
-                            {msg.toolCalls.map((toolCall) => (
-                              <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
-                                <div className="flex items-center gap-2">
-                                  {toolCall.status === 'running' ? (
-                                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                                  ) : toolCall.status === 'error' ? (
-                                    <span className="text-destructive">✕</span>
-                                  ) : (
-                                    <Check className="w-3 h-3 shrink-0 text-emerald-600" />
+              {thread.messages.map((msg) => {
+                const isActiveStreamingAssistant = msg.role === 'assistant'
+                  && msg.status === 'streaming'
+                  && msg === thread.messages[thread.messages.length - 1];
+                const hasAssistantDetails = msg.role === 'assistant'
+                  && (
+                    Boolean(msg.toolCalls?.length)
+                    || Boolean(msg.thinking)
+                    || (isActiveStreamingAssistant && Boolean(agentStatus))
+                  );
+                const isThinkingExpanded = Boolean(expandedThinkingByMessage[msg.id]);
+                const isLongThinking = Boolean(msg.thinking && msg.thinking.length > THINKING_PREVIEW_LIMIT);
+                const isFullThinkingExpanded = Boolean(expandedFullThinkingByMessage[msg.id]);
+                const thinkingSummary = msg.thinking ? summarizeThinking(msg.thinking) : '';
+                const thinkingContent = msg.thinking
+                  ? previewThinking(msg.thinking, isFullThinkingExpanded)
+                  : '';
+
+                return (
+                  <div key={msg.id} className={cn('flex gap-3 py-3.5', msg.id !== thread.messages[0]?.id && 'border-t')}>
+                    <Avatar className="h-7 w-7 shrink-0">
+                      {msg.role === 'user' && githubUser?.avatar_url ? (
+                        <AvatarImage src={githubUser.avatar_url} alt={githubUser.login} />
+                      ) : null}
+                      <AvatarFallback className={cn(
+                        msg.role === 'user'
+                          ? 'bg-muted text-muted-foreground text-xs'
+                          : 'bg-primary/10 text-primary text-xs',
+                      )}>
+                        {msg.role === 'user'
+                          ? (githubUser?.login?.[0]?.toUpperCase() || 'U')
+                          : <LoomIcon className="w-3.5 h-3.5" />}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex-1 min-w-0">
+                      <span className="text-xs font-medium text-muted-foreground block mb-0.5">
+                        {msg.role === 'user'
+                          ? (githubUser?.name || githubUser?.login || 'You')
+                          : 'Copilot'}
+                      </span>
+                      {hasAssistantDetails && (
+                        <div className="mb-2 space-y-1.5">
+                          {msg.thinking && (
+                            <div className="thinking-block" data-testid="thinking-block">
+                              <button
+                                type="button"
+                                className="thinking-toggle"
+                                data-testid="thinking-toggle"
+                                onClick={() => toggleThinking(msg.id)}
+                              >
+                                <ChevronDown
+                                  className={cn(
+                                    'w-3 h-3 shrink-0 transition-transform',
+                                    isThinkingExpanded ? 'rotate-0' : '-rotate-90',
                                   )}
-                                  <span className="truncate">{toolCall.toolName}</span>
+                                />
+                                <span className="thinking-toggle-label">Thinking</span>
+                                {!isThinkingExpanded && (
+                                  <span className="thinking-toggle-summary">{thinkingSummary}</span>
+                                )}
+                                {!isThinkingExpanded && isActiveStreamingAssistant && (
+                                  <span className="thinking-live-indicator" aria-hidden="true">
+                                    <span className="thinking-live-dot" />
+                                    <span className="thinking-live-dot" />
+                                    <span className="thinking-live-dot" />
+                                  </span>
+                                )}
+                              </button>
+                              {isThinkingExpanded && (
+                                <div className="thinking-content">
+                                  <div className="thinking-content-text">{thinkingContent}</div>
+                                  {isLongThinking && !isFullThinkingExpanded && (
+                                    <button
+                                      type="button"
+                                      className="thinking-show-more"
+                                      data-testid="thinking-show-more"
+                                      onClick={() => showFullThinking(msg.id)}
+                                    >
+                                      Show more
+                                    </button>
+                                  )}
                                 </div>
-                                {toolCall.result && (
-                                  <div className="pl-5 mt-0.5 text-muted-foreground/70 whitespace-pre-wrap break-words">
-                                    {toolCall.result}
-                                  </div>
-                                )}
-                                {toolCall.error && (
-                                  <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
-                                    {toolCall.error}
-                                  </div>
-                                )}
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                        {msg.thinking && (
-                          <details className="group" open={msg.status === 'streaming'}>
-                            <summary className="text-[11px] text-muted-foreground/70 cursor-pointer select-none hover:text-muted-foreground flex items-center gap-1">
-                              <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-0 -rotate-90" />
-                              Thinking
-                            </summary>
-                            <div className="mt-1 pl-4 text-[11px] text-muted-foreground/60 whitespace-pre-wrap max-h-[120px] overflow-y-auto leading-relaxed">
-                              {msg.thinking}
+                              )}
                             </div>
-                          </details>
-                        )}
-                      </div>
-                    )}
+                          )}
+                          {isActiveStreamingAssistant && agentStatus && (
+                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                              <span className="truncate">{agentStatus}</span>
+                            </div>
+                          )}
+                          {msg.toolCalls && msg.toolCalls.length > 0 && (
+                            <div className="space-y-1">
+                              {msg.toolCalls.map((toolCall) => (
+                                <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
+                                  <div className="flex items-center gap-2">
+                                    {toolCall.status === 'running' ? (
+                                      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                                    ) : toolCall.status === 'error' ? (
+                                      <span className="text-destructive">✕</span>
+                                    ) : (
+                                      <Check className="w-3 h-3 shrink-0 text-emerald-600" />
+                                    )}
+                                    <span className="truncate">{toolCall.toolName}</span>
+                                  </div>
+                                  {toolCall.result && (
+                                    <div className="pl-5 mt-0.5 text-muted-foreground/70 whitespace-pre-wrap break-words">
+                                      {toolCall.result}
+                                    </div>
+                                  )}
+                                  {toolCall.error && (
+                                    <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
+                                      {toolCall.error}
+                                    </div>
+                                  )}
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                      {msg.role === 'assistant' && msg.content && msg.status !== 'streaming' ? (
+                        <MarkdownMessage
+                          content={msg.content}
+                          className="text-[13.5px] leading-relaxed text-foreground select-text"
+                        />
+                      ) : (
+                        <div className="text-[13.5px] leading-relaxed text-foreground whitespace-pre-wrap break-words select-text">
+                          {msg.content || (msg.status === 'streaming' && (
+                            <span className="inline-flex gap-1 py-1">
+                              <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+                              <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+                              <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                      {msg.status === 'error' && (
+                        <span className="text-destructive text-[11px] mt-1 block">Failed</span>
+                      )}
+                    </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
               <div ref={messagesEndRef} />
             </div>
           </div>

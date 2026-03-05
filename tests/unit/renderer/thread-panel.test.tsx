@@ -76,8 +76,52 @@ describe('ThreadPanel', () => {
     await waitFor(() => expect(screen.getByText('final response')).toBeInTheDocument());
     expect(screen.queryByText('stale')).not.toBeInTheDocument();
     expect(screen.getByText('Analyzing context')).toBeInTheDocument();
+    expect(screen.getByTestId('thinking-toggle')).toHaveTextContent('Thinking');
+    const thinkingBlock = screen.getByTestId('thinking-block');
+    const finalResponse = screen.getByText('final response');
+    expect(
+      thinkingBlock.compareDocumentPosition(finalResponse) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeGreaterThan(0);
     expect(screen.getByText('read_bash')).toBeInTheDocument();
     expect(screen.getByText('Tool output')).toBeInTheDocument();
     expect(useAppStore.getState().threads.find((thread) => thread.id === threadId)?.status).toBe('completed');
+  });
+
+  it('collapses long thinking and expands on demand', async () => {
+    render(<ThreadPanel />);
+
+    const input = screen.getByTestId('thread-input');
+    fireEvent.change(input, { target: { value: 'Show long reasoning' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() =>
+      expect(ipcRenderer.send).toHaveBeenCalledWith(
+        'agent:send',
+        expect.objectContaining({
+          threadId,
+          requestId: expect.any(String),
+        }),
+      ),
+    );
+
+    const requestPayload = ipcRenderer.send.mock.calls.find((call) => call[0] === 'agent:send')?.[1];
+    const requestId = requestPayload?.requestId as string;
+    const longThinking = `reasoning-${'x'.repeat(620)}`;
+
+    act(() => {
+      ipcRenderer.emit('agent:stream', threadId, { type: 'thinking', content: longThinking, requestId });
+      ipcRenderer.emit('agent:stream', threadId, { type: 'done', content: 'short answer', requestId });
+    });
+
+    await waitFor(() => expect(screen.getByText('short answer')).toBeInTheDocument());
+    expect(screen.queryByText((content) => content === longThinking)).not.toBeInTheDocument();
+    expect(screen.queryByTestId('thinking-show-more')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('thinking-toggle'));
+    await waitFor(() => expect(screen.getByTestId('thinking-show-more')).toBeInTheDocument());
+    expect(screen.queryByText((content) => content === longThinking)).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('thinking-show-more'));
+    expect(screen.getByText((content) => content === longThinking)).toBeInTheDocument();
   });
 });
