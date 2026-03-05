@@ -227,7 +227,8 @@ export const Sidebar: React.FC = () => {
                 onClick={() => {
                   addMcpServer(mcpForm.name.trim(), {
                     command: mcpForm.command.trim(),
-                    args: mcpForm.args.trim() ? mcpForm.args.trim().split(/\s+/) : undefined,
+                    args: mcpForm.args.trim() ? mcpForm.args.trim().split(/\s+/) : [],
+                    tools: ['*'],
                   });
                   setMcpForm({ name: '', command: '', args: '' });
                 }}

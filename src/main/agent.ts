@@ -130,14 +130,16 @@ function loadMcpFromProject(cwd?: string): Record<string, any> {
     try {
       if (!fs.existsSync(file)) continue;
       const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      // .vscode/mcp.json uses { servers: { name: config } }
       const servers = raw.servers || raw;
       const result: Record<string, any> = {};
       for (const [name, cfg] of Object.entries(servers as Record<string, any>)) {
+        // Pass through the full config — the SDK needs type, tools, command, args, env, etc.
         result[name] = {
-          command: cfg.command,
-          args: cfg.args,
-          env: cfg.env,
+          ...cfg,
+          // Ensure tools defaults to ["*"] if not specified (expose all tools).
+          tools: cfg.tools || ['*'],
+          // Ensure args is an array.
+          args: cfg.args || [],
         };
       }
       return result;

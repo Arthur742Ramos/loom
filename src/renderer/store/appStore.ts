@@ -51,6 +51,9 @@ export interface McpServerConfig {
   command: string;
   args?: string[];
   env?: Record<string, string>;
+  tools?: string[];
+  type?: string;
+  timeout?: number;
 }
 
 interface AppState {
