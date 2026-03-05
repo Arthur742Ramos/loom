@@ -28,12 +28,20 @@ export interface Thread {
   worktreePath?: string;
 }
 
+export interface ToolCallEntry {
+  id: string;
+  toolName: string;
+  status: 'running' | 'done';
+}
+
 export interface ChatMessage {
   id: string;
   role: 'user' | 'assistant' | 'system';
   content: string;
   timestamp: number;
   status: 'pending' | 'streaming' | 'done' | 'error';
+  thinking?: string;
+  toolCalls?: ToolCallEntry[];
 }
 
 export interface GitHubUser {
@@ -88,6 +96,9 @@ interface AppState {
   addMessage: (threadId: string, message: ChatMessage) => void;
   updateMessage: (threadId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (threadId: string, messageId: string, content: string) => void;
+  appendThinking: (threadId: string, messageId: string, content: string) => void;
+  addToolCall: (threadId: string, messageId: string, toolCall: ToolCallEntry) => void;
+  updateToolCallStatus: (threadId: string, messageId: string, toolCallId: string, status: 'done') => void;
 
   // Permissions
   permissionMode: 'ask' | 'auto' | 'deny';
@@ -240,6 +251,55 @@ const appStore = create<AppState>()(
                   ...t,
                   messages: t.messages.map((m) =>
                     m.id === messageId ? { ...m, content: m.content + content } : m,
+                  ),
+                }
+              : t,
+          ),
+        })),
+
+      appendThinking: (threadId, messageId, content) =>
+        set((s) => ({
+          threads: s.threads.map((t) =>
+            t.id === threadId
+              ? {
+                  ...t,
+                  messages: t.messages.map((m) =>
+                    m.id === messageId ? { ...m, thinking: (m.thinking || '') + content } : m,
+                  ),
+                }
+              : t,
+          ),
+        })),
+
+      addToolCall: (threadId, messageId, toolCall) =>
+        set((s) => ({
+          threads: s.threads.map((t) =>
+            t.id === threadId
+              ? {
+                  ...t,
+                  messages: t.messages.map((m) =>
+                    m.id === messageId ? { ...m, toolCalls: [...(m.toolCalls || []), toolCall] } : m,
+                  ),
+                }
+              : t,
+          ),
+        })),
+
+      updateToolCallStatus: (threadId, messageId, toolCallId, status) =>
+        set((s) => ({
+          threads: s.threads.map((t) =>
+            t.id === threadId
+              ? {
+                  ...t,
+                  messages: t.messages.map((m) =>
+                    m.id === messageId
+                      ? {
+                          ...m,
+                          toolCalls: (m.toolCalls || []).map((tc) =>
+                            tc.id === toolCallId ? { ...tc, status } : tc,
+                          ),
+                        }
+                      : m,
                   ),
                 }
               : t,

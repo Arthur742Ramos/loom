@@ -126,6 +126,9 @@ export const ThreadPanel: React.FC = () => {
   const appendToMessage = useAppStore((s) => s.appendToMessage);
   const updateMessage = useAppStore((s) => s.updateMessage);
   const updateThread = useAppStore((s) => s.updateThread);
+  const appendThinking = useAppStore((s) => s.appendThinking);
+  const addToolCall = useAppStore((s) => s.addToolCall);
+  const updateToolCallStatus = useAppStore((s) => s.updateToolCallStatus);
   const projectPath = useAppStore((s) => s.projectPath);
   const selectedModel = useAppStore((s) => s.selectedModel);
   const setSelectedModel = useAppStore((s) => s.setSelectedModel);

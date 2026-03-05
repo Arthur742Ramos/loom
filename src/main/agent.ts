@@ -266,6 +266,8 @@ export function setupAgentHandlers() {
         const session = await getOrCreateSession(client, request, event.sender);
         inFlightSessions.set(request.threadId, session);
 
+        let toolCallCounter = 0;
+        const toolCallStack: string[] = [];
         unsubscribe = session.on((evt: any) => {
           if (evt.type === 'assistant.message_delta') {
             const content = evt.data?.deltaContent || evt.data?.content || '';
@@ -282,24 +284,37 @@ export function setupAgentHandlers() {
               type: 'status', status: evt.data?.intent || 'Working...',
             });
           } else if (evt.type === 'tool.execution_start') {
+            const toolCallId = `tc-${++toolCallCounter}`;
+            toolCallStack.push(toolCallId);
             event.sender.send('agent:stream', request.threadId, {
-              type: 'status',
-              status: `Running ${evt.data?.toolName || 'tool'}`,
-              toolName: evt.data?.toolName,
-              toolArgs: evt.data?.arguments,
+              type: 'tool_start',
+              toolCallId,
+              toolName: evt.data?.toolName || 'tool',
             });
           } else if (evt.type === 'tool.execution_complete') {
-            event.sender.send('agent:stream', request.threadId, { type: 'status', status: '' });
+            const toolCallId = toolCallStack.pop() || '';
+            event.sender.send('agent:stream', request.threadId, {
+              type: 'tool_end',
+              toolCallId,
+            });
           } else if (evt.type === 'skill.invoked') {
             event.sender.send('agent:stream', request.threadId, {
               type: 'status', status: `⚡ Skill: ${evt.data?.name || 'unknown'}`,
             });
           } else if (evt.type === 'subagent.started') {
+            const toolCallId = `tc-${++toolCallCounter}`;
+            toolCallStack.push(toolCallId);
             event.sender.send('agent:stream', request.threadId, {
-              type: 'status', status: `🤖 Agent: ${evt.data?.agentDisplayName || evt.data?.agentName || 'subagent'}`,
+              type: 'tool_start',
+              toolCallId,
+              toolName: `🤖 ${evt.data?.agentDisplayName || evt.data?.agentName || 'subagent'}`,
             });
           } else if (evt.type === 'subagent.completed' || evt.type === 'subagent.failed') {
-            event.sender.send('agent:stream', request.threadId, { type: 'status', status: '' });
+            const toolCallId = toolCallStack.pop() || '';
+            event.sender.send('agent:stream', request.threadId, {
+              type: 'tool_end',
+              toolCallId,
+            });
           } else if (evt.type === 'session.error') {
             event.sender.send('agent:stream', request.threadId, {
               type: 'error',

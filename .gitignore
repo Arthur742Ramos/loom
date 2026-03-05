@@ -7,3 +7,4 @@ release/
 Thumbs.db
 test-screenshots/
 agent-debug.log
+session-state/
