@@ -7,6 +7,8 @@ import { contextBridge, ipcRenderer } from 'electron';
  */
 
 contextBridge.exposeInMainWorld('electronAPI', {
+  isTestMode: process.env.LOOM_TEST_MODE === '1',
+
   // IPC send (fire-and-forget)
   send: (channel: string, ...args: any[]) => {
     const allowedSendChannels = [

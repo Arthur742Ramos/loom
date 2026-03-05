@@ -74,6 +74,7 @@ test('renders thinking and tool-call entries with quiet tool output by default',
       const store = (window as any).__appStore;
       store.getState().setShowToolOutputDetails(true);
     });
+    await page.getByRole('button', { name: /1 tool call/i }).click();
     await expect(page.getByText('Tool result output')).toBeVisible();
     await page.getByText('Thinking').first().click();
     await expect(page.getByText('Reasoning trace from script')).toBeVisible();

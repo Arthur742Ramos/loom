@@ -1,6 +1,7 @@
 /** Type declarations for the preload-exposed electronAPI bridge. */
 
 interface ElectronAPI {
+  isTestMode: boolean;
   send: (channel: string, ...args: any[]) => void;
   invoke: (channel: string, ...args: any[]) => Promise<any>;
   on: (channel: string, callback: (...args: any[]) => void) => () => void;

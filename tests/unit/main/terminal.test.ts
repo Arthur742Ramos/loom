@@ -122,4 +122,17 @@ describe('src/main/terminal.ts', () => {
     const result = await handler({ sender: { send: vi.fn() } }, 'thread-fail', '/tmp');
     expect(result).toEqual({ error: 'node-pty not available' });
   });
+
+  it('terminal:create returns error when pty.spawn throws', async () => {
+    mockSpawn.mockImplementation(() => {
+      throw new Error('invalid cwd');
+    });
+    const mockPty = { spawn: mockSpawn };
+    const { setupTerminalHandlers } = await import('../../../src/main/terminal');
+    setupTerminalHandlers(mockPty);
+
+    const { promise } = invokeCreate('thread-throw', '/does/not/exist');
+    const result = await Promise.resolve(promise);
+    expect(result).toEqual({ error: 'invalid cwd' });
+  });
 });

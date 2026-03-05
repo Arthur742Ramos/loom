@@ -29,6 +29,7 @@ export async function launchLoomApp(options: LaunchLoomOptions = {}): Promise<Lo
 }
 
 export async function setProjectInStore(page: Page, projectPath: string, projectName: string): Promise<void> {
+  await page.waitForFunction(() => Boolean((window as any).__appStore));
   await page.evaluate(
     ([pathValue, nameValue]) => {
       const store = (window as any).__appStore;
