@@ -1,8 +1,13 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore } from '../store/appStore';
 import { X, Sun, Moon, Monitor, Download } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
+
+interface UpdaterCheckResult {
+  available: boolean;
+  version?: string;
+}
 
 export const SettingsPanel: React.FC = () => {
   const showSettings = useAppStore((s) => s.showSettings);
@@ -12,14 +17,28 @@ export const SettingsPanel: React.FC = () => {
   const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
   const setShowToolOutputDetails = useAppStore((s) => s.setShowToolOutputDetails);
   const [updateStatus, setUpdateStatus] = useState<{ status: string; version?: string } | null>(null);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
-    return api.on('updater:status', (data: any) => {
+    return api.on('updater:status', (data: { status: string; version?: string }) => {
       setUpdateStatus(data);
     });
   }, []);
+
+  useEffect(() => {
+    if (!showSettings) return;
+    closeButtonRef.current?.focus();
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        setShowSettings(false);
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [showSettings, setShowSettings]);
 
   if (!showSettings) return null;
 
@@ -32,11 +51,18 @@ export const SettingsPanel: React.FC = () => {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="settings-panel"
       onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
-      <div className="bg-card rounded-2xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div
+        className="bg-card rounded-2xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto animate-in fade-in-0 zoom-in-95 duration-200"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Settings panel"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-semibold text-foreground">Settings</h2>
           <Button
+            ref={closeButtonRef}
             data-testid="settings-close-button"
             variant="ghost"
             size="icon"
@@ -112,11 +138,23 @@ export const SettingsPanel: React.FC = () => {
                 onClick={async () => {
                   const api = window.electronAPI;
                   if (!api) return;
-                  const result = await api.invoke('updater:check');
-                  if (!result.available) setUpdateStatus({ status: 'up-to-date' });
+                  try {
+                    const result = await api.invoke<UpdaterCheckResult>('updater:check');
+                    if (result.available) {
+                      setUpdateStatus({ status: 'available', version: result.version });
+                    } else {
+                      setUpdateStatus({ status: 'up-to-date' });
+                    }
+                  } catch {
+                    setUpdateStatus({ status: 'error' });
+                  }
                 }}
               >
-                {updateStatus?.status === 'up-to-date' ? '✓ Up to date' : 'Check for updates'}
+                {updateStatus?.status === 'up-to-date'
+                  ? '✓ Up to date'
+                  : updateStatus?.status === 'error'
+                    ? 'Update check failed'
+                    : 'Check for updates'}
               </button>
             )}
           </div>

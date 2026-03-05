@@ -1,10 +1,11 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { Button } from './ui/button';
 import { ChevronDown, RefreshCw } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { DiffFile, DiffHunk, DiffLine } from '../../shared/types';
 
 export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
-  const [files, setFiles] = useState<any[]>([]);
+  const [files, setFiles] = useState<DiffFile[]>([]);
   const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(false);
   const [staged, setStaged] = useState(false);
@@ -14,10 +15,10 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
     try {
       const api = window.electronAPI;
       if (api) {
-        const result = await api.invoke('git:diff', projectPath, staged);
-        const parsed = result.files || [];
+        const result = await api.invoke<{ files?: DiffFile[] }>('git:diff', projectPath, staged);
+        const parsed = Array.isArray(result.files) ? result.files : [];
         setFiles(parsed);
-        setExpandedFiles(new Set(parsed.map((f: any) => f.path)));
+        setExpandedFiles(new Set(parsed.map((f) => f.path)));
       }
     } catch (err) {
       console.error('Failed to load diff:', err);
@@ -36,21 +37,38 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
     });
   };
 
-  const statusIcon = (s: string) =>
+  const statusIcon = (s: DiffFile['status']) =>
     s === 'added' ? '🟢' : s === 'deleted' ? '🔴' : s === 'renamed' ? '🔵' : '🟡';
+  const diffTotals = useMemo(
+    () => files.reduce((acc, file) => ({
+      additions: acc.additions + file.additions,
+      deletions: acc.deletions + file.deletions,
+    }), { additions: 0, deletions: 0 }),
+    [files],
+  );
 
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="diff-view">
       <div className="flex items-center gap-2 px-4 py-2 border-b bg-card shrink-0">
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={loadDiff}>
-          <RefreshCw className="w-3 h-3" /> Refresh
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-7 text-xs gap-1.5"
+          onClick={loadDiff}
+          disabled={loading}
+        >
+          <RefreshCw className={cn('w-3 h-3', loading && 'animate-spin')} /> Refresh
         </Button>
         <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
-          <button onClick={() => setStaged(false)}
+          <button
+            aria-pressed={!staged}
+            onClick={() => setStaged(false)}
             className={cn('px-2 py-0.5 rounded text-[10px] font-medium transition-all',
               !staged ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
           >Unstaged</button>
-          <button onClick={() => setStaged(true)}
+          <button
+            aria-pressed={staged}
+            onClick={() => setStaged(true)}
             className={cn('px-2 py-0.5 rounded text-[10px] font-medium transition-all',
               staged ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
           >Staged</button>
@@ -58,19 +76,27 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
         {files.length > 0 && (
           <span className="text-[11px] text-muted-foreground ml-auto">
             {files.length} file{files.length !== 1 ? 's' : ''} ·{' '}
-            <span className="text-green-600">+{files.reduce((s: number, f: any) => s + f.additions, 0)}</span>{' '}
-            <span className="text-red-500">-{files.reduce((s: number, f: any) => s + f.deletions, 0)}</span>
+            <span className="text-green-600">+{diffTotals.additions}</span>{' '}
+            <span className="text-red-500">-{diffTotals.deletions}</span>
           </span>
         )}
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
-        {loading && <p className="p-4 text-sm text-muted-foreground">Loading diff...</p>}
-        {!loading && files.length === 0 && (
-          <div className="flex flex-col items-center justify-center min-h-[200px] text-muted-foreground/60 text-sm">
-            No {staged ? 'staged' : 'unstaged'} changes
+        {loading && (
+          <div className="p-4 space-y-2" aria-live="polite">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="h-7 rounded-md bg-secondary/60 animate-pulse" />
+            ))}
           </div>
         )}
-        {files.map((file: any) => (
+        {!loading && files.length === 0 && (
+          <div className="flex flex-col items-center justify-center min-h-[220px] text-muted-foreground/70 text-sm gap-1.5">
+            <p className="font-medium text-foreground/90">You're all caught up</p>
+            <p>No {staged ? 'staged' : 'unstaged'} changes</p>
+            <p className="text-xs text-muted-foreground/60">Edit files to see live diffs here.</p>
+          </div>
+        )}
+        {files.map((file) => (
           <div key={file.path} className="border-b last:border-b-0">
             <button
               className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-secondary/40 transition-colors"
@@ -89,14 +115,14 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
                 <span className="text-red-500">-{file.deletions}</span>
               </span>
             </button>
-            {expandedFiles.has(file.path) && file.hunks.map((hunk: any, hi: number) => (
+            {expandedFiles.has(file.path) && file.hunks.map((hunk: DiffHunk, hi: number) => (
               <div key={hi} className="border-t border-border/40">
                 <div className="px-4 py-1 bg-primary/5 text-[11px] font-mono text-primary">
                   @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
                   {hunk.header && <span className="text-muted-foreground ml-2">{hunk.header}</span>}
                 </div>
                 <div className="font-mono text-[12px] leading-[1.6]">
-                  {hunk.lines.map((line: any, li: number) => (
+                  {hunk.lines.map((line: DiffLine, li: number) => (
                     <div key={li} className={cn('flex',
                       line.type === 'add' && 'bg-green-500/10',
                       line.type === 'del' && 'bg-red-500/10',

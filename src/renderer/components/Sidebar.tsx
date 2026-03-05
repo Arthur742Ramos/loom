@@ -1,13 +1,76 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { useAppStore, McpServerConfig } from '../store/appStore';
-import { Button } from './ui/button';
-import {Separator } from './ui/separator';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
+import { GitHubUser, useAppStore } from '../store/appStore';
 import {
   SquarePen, LayoutGrid, Folder, FolderPlus, ListFilter, FolderPlusIcon,
   Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw, Settings, Copy, X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { LoomLogo } from './LoomIcon';
+
+interface MentionableEntry {
+  name: string;
+  path: string;
+  description: string;
+}
+
+interface ProjectMcpServer {
+  command: string;
+  args?: string[];
+}
+
+interface AuthLoginCompletePayload {
+  authenticated?: boolean;
+  user?: unknown;
+}
+
+interface AuthGetUserResult {
+  authenticated: boolean;
+  user?: GitHubUser;
+}
+
+interface AuthLoginResult {
+  success: boolean;
+  userCode?: string;
+  verificationUri?: string;
+}
+
+const isGitHubUser = (value: unknown): value is GitHubUser => (
+  typeof value === 'object'
+  && value !== null
+  && typeof (value as GitHubUser).login === 'string'
+  && typeof (value as GitHubUser).avatar_url === 'string'
+  && (
+    (value as GitHubUser).name === null
+    || typeof (value as GitHubUser).name === 'string'
+  )
+);
+
+const toMentionableEntries = (value: unknown): MentionableEntry[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((entry): entry is MentionableEntry => (
+    typeof entry === 'object'
+    && entry !== null
+    && typeof (entry as MentionableEntry).name === 'string'
+    && typeof (entry as MentionableEntry).path === 'string'
+    && typeof (entry as MentionableEntry).description === 'string'
+  ));
+};
+
+const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> => {
+  if (!value || typeof value !== 'object') return {};
+  const result: Record<string, ProjectMcpServer> = {};
+  for (const [name, config] of Object.entries(value)) {
+    if (typeof config !== 'object' || config === null) continue;
+    const command = (config as ProjectMcpServer).command;
+    const args = (config as ProjectMcpServer).args;
+    if (typeof command !== 'string') continue;
+    if (args !== undefined && (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string'))) {
+      continue;
+    }
+    result[name] = { command, ...(args ? { args } : {}) };
+  }
+  return result;
+};
 
 export const Sidebar: React.FC = () => {
   const threads = useAppStore((s) => s.threads);
@@ -33,16 +96,16 @@ export const Sidebar: React.FC = () => {
   const removeMcpServer = useAppStore((s) => s.removeMcpServer);
   const [showMcp, setShowMcp] = useState(false);
   const [mcpForm, setMcpForm] = useState({ name: '', command: '', args: '' });
-  const [projectMcp, setProjectMcp] = useState<Record<string, any>>({});
-  const showSettings = useAppStore((s) => s.showSettings);
+  const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServer>>({});
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const insertIntoChatInput = useAppStore((s) => s.insertIntoChatInput);
   const [showSkills, setShowSkills] = useState(false);
-  const [skills, setSkills] = useState<{ name: string; path: string; description: string }[]>([]);
+  const [skills, setSkills] = useState<MentionableEntry[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
   const [showAgents, setShowAgents] = useState(false);
-  const [agents, setAgents] = useState<{ name: string; path: string; description: string }[]>([]);
+  const [agents, setAgents] = useState<MentionableEntry[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
+  const [showThreadFilter, setShowThreadFilter] = useState(false);
   const [threadFilter, setThreadFilter] = useState('');
   const isMountedRef = useRef(true);
   const latestProjectPathRef = useRef<string | null>(projectPath);
@@ -64,6 +127,29 @@ export const Sidebar: React.FC = () => {
     setAgents([]);
   }, [projectPath]);
 
+  const normalizedThreadFilter = useMemo(
+    () => threadFilter.trim().toLowerCase(),
+    [threadFilter],
+  );
+
+  const threadsByProject = useMemo(() => {
+    const grouped = new Map<string, typeof threads>();
+    for (const thread of threads) {
+      const threadProjectPath = thread.projectPath || projectPath;
+      if (!threadProjectPath) continue;
+      if (normalizedThreadFilter && !thread.title.toLowerCase().includes(normalizedThreadFilter)) {
+        continue;
+      }
+      const existing = grouped.get(threadProjectPath);
+      if (existing) {
+        existing.push(thread);
+      } else {
+        grouped.set(threadProjectPath, [thread]);
+      }
+    }
+    return grouped;
+  }, [threads, projectPath, normalizedThreadFilter]);
+
   const loadSkills = async () => {
     const targetProjectPath = projectPath;
     if (!targetProjectPath || !window.electronAPI) return;
@@ -78,7 +164,7 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setSkills(Array.isArray(result) ? result : []);
+      setSkills(toMentionableEntries(result));
     } catch {
       if (
         !isMountedRef.current
@@ -109,7 +195,7 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setAgents(Array.isArray(result) ? result : []);
+      setAgents(toMentionableEntries(result));
     } catch {
       if (
         !isMountedRef.current
@@ -139,7 +225,7 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setProjectMcp(result && typeof result === 'object' ? result : {});
+      setProjectMcp(toProjectMcpServers(result));
     } catch {
       if (
         !isMountedRef.current
@@ -155,10 +241,10 @@ export const Sidebar: React.FC = () => {
   const handleOpenProject = async () => {
     if (!window.electronAPI) return;
     try {
-      const path = await window.electronAPI.invoke('project:select-dir');
-      if (path) {
-        const name = path.split(/[/\\]/).pop() || path;
-        setProject(path, name);
+      const selectedPath = await window.electronAPI.invoke<string | null>('project:select-dir');
+      if (typeof selectedPath === 'string' && selectedPath.length > 0) {
+        const name = selectedPath.split(/[/\\]/).pop() || selectedPath;
+        setProject(selectedPath, name);
       }
     } catch {}
   };
@@ -179,8 +265,8 @@ export const Sidebar: React.FC = () => {
     if (!api) return;
     setLoginLoading(true);
     try {
-      const result = await api.invoke('auth:get-user');
-      if (result.authenticated) {
+      const result = await api.invoke<AuthGetUserResult>('auth:get-user');
+      if (result.authenticated && result.user) {
         setGitHubUser(result.user);
         fetchModels();
       } else {
@@ -197,8 +283,8 @@ export const Sidebar: React.FC = () => {
     setLoginLoading(true);
     setCodeCopied(false);
     try {
-      const result = await api.invoke('auth:login');
-      if (result.success && result.userCode) {
+      const result = await api.invoke<AuthLoginResult>('auth:login');
+      if (result.success && result.userCode && result.verificationUri) {
         setDeviceCode({ userCode: result.userCode, verificationUri: result.verificationUri });
       } else if (!result.success) {
         setLoginLoading(false);
@@ -226,11 +312,12 @@ export const Sidebar: React.FC = () => {
   // Listen for device flow completion
   useEffect(() => {
     if (!api) return;
-    const unsub = api.on('auth:login-complete', (result: any) => {
+    const unsub = api.on('auth:login-complete', (result: unknown) => {
+      const payload = (result || {}) as AuthLoginCompletePayload;
       setDeviceCode(null);
       setLoginLoading(false);
-      if (result.authenticated && result.user) {
-        setGitHubUser(result.user);
+      if (payload.authenticated && isGitHubUser(payload.user)) {
+        setGitHubUser(payload.user);
         fetchModels();
       }
     });
@@ -283,7 +370,7 @@ export const Sidebar: React.FC = () => {
             {Object.keys(projectMcp).length > 0 && (
               <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-1">From project</p>
             )}
-            {Object.entries(projectMcp).map(([name, config]: [string, any]) => (
+            {Object.entries(projectMcp).map(([name, config]) => (
               <div key={`proj-${name}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
                 <span className="text-blue-400">●</span>
                 <div className="min-w-0 flex-1">
@@ -428,24 +515,38 @@ export const Sidebar: React.FC = () => {
       <div className="px-5 flex items-center justify-between mb-2">
         <span className="text-[13px] text-muted-foreground">Threads</span>
         <div className="flex gap-1">
-          <button className="text-muted-foreground hover:text-foreground transition-colors p-1" onClick={() => handleNewThread()}>
+          <button
+            aria-label="Create thread"
+            className="text-muted-foreground hover:text-foreground transition-colors p-1"
+            onClick={() => handleNewThread()}
+          >
             <FolderPlus className="w-4 h-4" strokeWidth={1.5} />
           </button>
           <button
-            className={cn('text-muted-foreground hover:text-foreground transition-colors p-1', threadFilter && 'text-primary')}
-            onClick={() => setThreadFilter(threadFilter ? '' : ' ')}
+            aria-label={showThreadFilter ? 'Hide thread filter' : 'Show thread filter'}
+            aria-pressed={showThreadFilter}
+            className={cn(
+              'text-muted-foreground hover:text-foreground transition-colors p-1',
+              (threadFilter || showThreadFilter) && 'text-primary',
+            )}
+            onClick={() => {
+              setShowThreadFilter((prev) => {
+                if (prev) setThreadFilter('');
+                return !prev;
+              });
+            }}
             title="Filter threads"
           >
             <ListFilter className="w-4 h-4" strokeWidth={1.5} />
           </button>
         </div>
       </div>
-      {threadFilter !== '' && (
+      {showThreadFilter && (
         <div className="px-5 mb-2">
           <input
             className="w-full px-2.5 py-1.5 text-xs bg-secondary/60 border rounded-md text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
             placeholder="Filter threads..."
-            value={threadFilter.trim()}
+            value={threadFilter}
             onChange={(e) => setThreadFilter(e.target.value)}
             autoFocus
           />
@@ -455,13 +556,7 @@ export const Sidebar: React.FC = () => {
       {/* Projects & threads */}
       <div className="px-3">
         {projects.map((project) => {
-          const projectThreads = threads.filter((thread) => {
-            if ((thread.projectPath || projectPath) !== project.path) return false;
-            if (threadFilter.trim()) {
-              return thread.title.toLowerCase().includes(threadFilter.trim().toLowerCase());
-            }
-            return true;
-          });
+          const projectThreads = threadsByProject.get(project.path) || [];
           const isActiveProject = projectPath === project.path;
           return (
             <div className="mb-3" key={project.path}>
@@ -475,6 +570,14 @@ export const Sidebar: React.FC = () => {
                 )}
                 onClick={() => setProject(project.path, project.name)}
                 onDoubleClick={() => handleNewThread(project.path, project.name)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') {
+                    event.preventDefault();
+                    setProject(project.path, project.name);
+                  }
+                }}
+                tabIndex={0}
+                role="button"
               >
                 <Folder className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
                 {project.name}
@@ -495,6 +598,14 @@ export const Sidebar: React.FC = () => {
                           : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
                       )}
                       onClick={() => setActiveThread(thread.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setActiveThread(thread.id);
+                        }
+                      }}
+                      tabIndex={0}
+                      role="button"
                     >
                       <div className={cn('w-1.5 h-1.5 rounded-full shrink-0', statusDot[thread.status] || statusDot.idle)} />
                       {editingThreadId === thread.id ? (
@@ -524,6 +635,7 @@ export const Sidebar: React.FC = () => {
                         >{thread.title}</span>
                       )}
                       <button
+                        aria-label={`Delete thread ${thread.title}`}
                         className="hidden group-hover:block text-muted-foreground hover:text-destructive transition-colors"
                         onClick={(e) => { e.stopPropagation(); removeThread(thread.id); }}
                       >
@@ -536,6 +648,17 @@ export const Sidebar: React.FC = () => {
             </div>
           );
         })}
+        {projects.length === 0 && (
+          <div className="mx-2 mb-3 rounded-xl border border-dashed border-border/80 bg-secondary/20 px-3 py-5 text-center">
+            <p className="text-xs text-muted-foreground mb-2">No project opened yet</p>
+            <button
+              className="text-xs font-medium text-primary hover:opacity-80 transition-opacity"
+              onClick={handleOpenProject}
+            >
+              Choose a folder to start
+            </button>
+          </div>
+        )}
 
         {/* Add project */}
         <button
@@ -592,10 +715,14 @@ export const Sidebar: React.FC = () => {
               </code>
               <button
                 className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded hover:bg-secondary"
-                onClick={() => {
-                  navigator.clipboard.writeText(deviceCode.userCode);
-                  setCodeCopied(true);
-                  setTimeout(() => setCodeCopied(false), 2000);
+                onClick={async () => {
+                  try {
+                    await navigator.clipboard.writeText(deviceCode.userCode);
+                    setCodeCopied(true);
+                    setTimeout(() => setCodeCopied(false), 2000);
+                  } catch {
+                    setCodeCopied(false);
+                  }
                 }}
                 title={codeCopied ? 'Copied!' : 'Copy code'}
               >

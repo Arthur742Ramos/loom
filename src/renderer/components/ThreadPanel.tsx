@@ -1,11 +1,9 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { useAppStore, ChatMessage, ModelInfo } from '../store/appStore';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
+import { useAppStore, ChatMessage } from '../store/appStore';
 import { Button } from './ui/button';
-import { Badge } from './ui/badge';
-import { ScrollArea } from './ui/scroll-area';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import {
-  MessageSquare, GitCompare, TerminalSquare, Send, RefreshCw, ChevronDown, Check, Loader2, Square,
+  MessageSquare, GitCompare, TerminalSquare, Send, ChevronDown, Check, Loader2, Square,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { MarkdownMessage } from './MarkdownMessage';
@@ -99,6 +97,16 @@ export const ThreadPanel: React.FC = () => {
   const pendingPermission = activeThreadId ? pendingPermissionByThread[activeThreadId] || null : null;
   const pendingUserInput = activeThreadId ? pendingUserInputByThread[activeThreadId] || null : null;
   const userInputAnswer = activeThreadId ? userInputAnswerByThread[activeThreadId] || '' : '';
+  const currentModel = useMemo(
+    () => availableModels.find((model) => model.id === selectedModel),
+    [availableModels, selectedModel],
+  );
+  const supportedReasoningLevels = useMemo(() => {
+    const supported = currentModel?.supportedReasoningEfforts;
+    return (['low', 'medium', 'high', 'xhigh'] as const).filter(
+      (level) => !supported || supported.length === 0 || supported.includes(level),
+    );
+  }, [currentModel]);
 
   const scrollToBottom = () => {
     const el = scrollContainerRef.current;
@@ -189,7 +197,7 @@ export const ThreadPanel: React.FC = () => {
   };
 
   const handleSend = () => {
-    if (!thread || !activeThreadId) return;
+    if (!thread || !activeThreadId || thread.status === 'running') return;
     const trimmedInput = input.trim();
     if (!trimmedInput) return;
 
@@ -392,13 +400,10 @@ export const ThreadPanel: React.FC = () => {
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
-  };
-
-  const statusBadgeVariant = (s: string) => {
-    if (s === 'running') return 'default' as const;
-    if (s === 'error') return 'destructive' as const;
-    return 'secondary' as const;
+    if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+      e.preventDefault();
+      handleSend();
+    }
   };
 
   if (!thread) return null;
@@ -406,7 +411,7 @@ export const ThreadPanel: React.FC = () => {
   return (
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="thread-panel">
       {/* Header — Codex style */}
-      <div className="flex items-center justify-between px-8 pt-7 pb-4 shrink-0">
+      <div className="flex items-center justify-between gap-3 px-8 pt-7 pb-4 shrink-0 flex-wrap">
         {editingTitle ? (
           <input
             className="text-xl font-semibold text-foreground bg-transparent outline-none border-b-2 border-primary min-w-[120px]"
@@ -429,13 +434,14 @@ export const ThreadPanel: React.FC = () => {
             title="Double-click to rename"
           >{thread.title}</h2>
         )}
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           {thread.tokenUsage && thread.tokenUsage.totalTokens > 0 && (
             <TokenCounter usage={thread.tokenUsage} />
           )}
-          <div className="flex gap-0.5 bg-secondary rounded-lg p-1" role="tablist" aria-label="Thread view tabs">
+          <div className="flex gap-0.5 bg-secondary rounded-lg p-1 overflow-x-auto" role="tablist" aria-label="Thread view tabs">
             <button
               data-testid="tab-chat"
+              aria-label="Chat tab"
               role="tab"
               aria-selected={activeTab === 'chat'}
               className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
@@ -446,6 +452,7 @@ export const ThreadPanel: React.FC = () => {
             </button>
             <button
               data-testid="tab-diff"
+              aria-label="Diff tab"
               role="tab"
               aria-selected={activeTab === 'diff'}
               className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
@@ -456,6 +463,7 @@ export const ThreadPanel: React.FC = () => {
             </button>
             <button
               data-testid="tab-terminal"
+              aria-label="Terminal tab"
               role="tab"
               aria-selected={activeTab === 'terminal'}
               className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
@@ -756,6 +764,7 @@ export const ThreadPanel: React.FC = () => {
                 className="flex-1 px-3.5 py-2 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
                 placeholder="Ask Copilot to work on something..."
                 value={input}
+                disabled={thread.status === 'running'}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={1}
@@ -785,32 +794,25 @@ export const ThreadPanel: React.FC = () => {
             <div className="flex items-center justify-between mt-1.5 px-1">
               <div className="flex items-center gap-2">
                 <ModelPicker value={selectedModel} onChange={setSelectedModel} />
-                {(() => {
-                  const currentModel = availableModels.find(m => m.id === selectedModel);
-                  const supported = currentModel?.supportedReasoningEfforts;
-                  const levels = (['low', 'medium', 'high', 'xhigh'] as const).filter(
-                    l => !supported || supported.length === 0 || supported.includes(l)
-                  );
-                  return levels.length > 0 ? (
-                    <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
-                      {levels.map((level) => (
-                        <button
-                          key={level}
-                          onClick={() => setReasoningEffort(level)}
-                          className={cn(
-                            'px-1.5 py-0.5 rounded text-[10px] font-medium transition-all',
-                            reasoningEffort === level
-                              ? 'bg-card text-foreground shadow-sm'
-                              : 'text-muted-foreground hover:text-foreground',
-                          )}
-                          title={`Reasoning effort: ${level}`}
-                        >
-                          {level === 'low' ? '⚡' : level === 'medium' ? '⚖️' : level === 'high' ? '🧠' : '💎'}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null;
-                })()}
+                {supportedReasoningLevels.length > 0 && (
+                  <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
+                    {supportedReasoningLevels.map((level) => (
+                      <button
+                        key={level}
+                        onClick={() => setReasoningEffort(level)}
+                        className={cn(
+                          'px-1.5 py-0.5 rounded text-[10px] font-medium transition-all',
+                          reasoningEffort === level
+                            ? 'bg-card text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                        title={`Reasoning effort: ${level}`}
+                      >
+                        {level === 'low' ? '⚡' : level === 'medium' ? '⚖️' : level === 'high' ? '🧠' : '💎'}
+                      </button>
+                    ))}
+                  </div>
+                )}
                 {/* Permission mode */}
                 <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
                   {(['auto', 'ask', 'deny'] as const).map((mode) => (
