@@ -8,10 +8,7 @@ export const TitleBar: React.FC = () => {
   const projectName = useAppStore((s) => s.projectName);
 
   const ipc = (channel: string) => {
-    if (typeof window !== 'undefined' && (window as any).require) {
-      const { ipcRenderer } = (window as any).require('electron');
-      ipcRenderer.send(channel);
-    }
+    window.electronAPI?.send(channel);
   };
 
   return (

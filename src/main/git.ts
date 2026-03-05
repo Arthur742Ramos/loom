@@ -4,6 +4,17 @@ import * as path from 'path';
 import * as fs from 'fs';
 
 const gitInstances = new Map<string, SimpleGit>();
+const GIT_INSTANCE_MAX = 20;
+
+function evictGitInstances() {
+  if (gitInstances.size <= GIT_INSTANCE_MAX) return;
+  // Remove oldest entries (first inserted) to stay under limit.
+  const excess = gitInstances.size - GIT_INSTANCE_MAX;
+  const keys = [...gitInstances.keys()];
+  for (let i = 0; i < excess; i++) {
+    gitInstances.delete(keys[i]);
+  }
+}
 
 export interface DiffLine {
   type: 'add' | 'del' | 'ctx';
@@ -98,9 +109,14 @@ export function parseDiff(raw: string): DiffFile[] {
 
 function getGit(projectPath: string): SimpleGit {
   if (!gitInstances.has(projectPath)) {
+    evictGitInstances();
     gitInstances.set(projectPath, simpleGit(projectPath));
   }
   return gitInstances.get(projectPath)!;
+}
+
+function isValidThreadId(threadId: string): boolean {
+  return /^[\w-]+$/.test(threadId);
 }
 
 export function setupGitHandlers() {
@@ -156,6 +172,9 @@ export function setupGitHandlers() {
   });
 
   ipcMain.handle('git:create-worktree', async (_event, projectPath: string, threadId: string) => {
+    if (!isValidThreadId(threadId)) {
+      return { error: 'Invalid thread ID' };
+    }
     try {
       const git = getGit(projectPath);
       const worktreePath = path.join(projectPath, '.copilot-worktrees', threadId);

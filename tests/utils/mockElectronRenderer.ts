@@ -1,12 +1,13 @@
 import { vi } from 'vitest';
 
-type Listener = (_event: unknown, ...args: any[]) => void;
+type Listener = (...args: any[]) => void;
 
 export interface MockIpcRenderer {
   invoke: ReturnType<typeof vi.fn>;
   send: ReturnType<typeof vi.fn>;
   on: ReturnType<typeof vi.fn>;
   once: ReturnType<typeof vi.fn>;
+  sendReply: ReturnType<typeof vi.fn>;
   removeListener: ReturnType<typeof vi.fn>;
   emit: (channel: string, ...args: any[]) => void;
   reset: () => void;
@@ -22,27 +23,36 @@ export function createMockIpcRenderer(): MockIpcRenderer {
     on: vi.fn((channel: string, listener: Listener) => {
       if (!listeners.has(channel)) listeners.set(channel, new Set());
       listeners.get(channel)!.add(listener);
-      return ipcRenderer;
+      // Return unsubscribe function matching preload API.
+      return () => { listeners.get(channel)?.delete(listener); };
     }),
     once: vi.fn((channel: string, listener: Listener) => {
       if (!onceListeners.has(channel)) onceListeners.set(channel, new Set());
       onceListeners.get(channel)!.add(listener);
-      return ipcRenderer;
+    }),
+    sendReply: vi.fn((channel: string, ...args: any[]) => {
+      // Simulate sending to reply channels — fire matching once listeners.
+      const once = onceListeners.get(channel);
+      if (once) {
+        onceListeners.delete(channel);
+        for (const listener of once) {
+          listener(...args);
+        }
+      }
     }),
     removeListener: vi.fn((channel: string, listener: Listener) => {
       listeners.get(channel)?.delete(listener);
       onceListeners.get(channel)?.delete(listener);
-      return ipcRenderer;
     }),
     emit: (channel: string, ...args: any[]) => {
       for (const listener of listeners.get(channel) ?? []) {
-        listener({}, ...args);
+        listener(...args);
       }
       const once = onceListeners.get(channel);
       if (once) {
         onceListeners.delete(channel);
         for (const listener of once) {
-          listener({}, ...args);
+          listener(...args);
         }
       }
     },
@@ -51,6 +61,7 @@ export function createMockIpcRenderer(): MockIpcRenderer {
       onceListeners.clear();
       ipcRenderer.invoke.mockReset();
       ipcRenderer.send.mockReset();
+      ipcRenderer.sendReply.mockReset();
       ipcRenderer.on.mockClear();
       ipcRenderer.once.mockClear();
       ipcRenderer.removeListener.mockClear();
@@ -60,20 +71,16 @@ export function createMockIpcRenderer(): MockIpcRenderer {
   return ipcRenderer;
 }
 
+/** Installs mock as window.electronAPI (matching the preload bridge). */
 export function installElectronMock(ipcRenderer: MockIpcRenderer): () => void {
-  const originalRequire = (window as any).require;
-  (window as any).require = (moduleName: string) => {
-    if (moduleName === 'electron') {
-      return { ipcRenderer };
-    }
-    throw new Error(`Unsupported module in test require(): ${moduleName}`);
-  };
+  const originalAPI = window.electronAPI;
+  (window as any).electronAPI = ipcRenderer;
 
   return () => {
-    if (originalRequire) {
-      (window as any).require = originalRequire;
-      return;
+    if (originalAPI) {
+      (window as any).electronAPI = originalAPI;
+    } else {
+      delete (window as any).electronAPI;
     }
-    delete (window as any).require;
   };
 }

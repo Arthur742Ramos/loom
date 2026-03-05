@@ -33,8 +33,9 @@ function createWindow() {
     frame: true,
     autoHideMenuBar: true,
     webPreferences: {
-      nodeIntegration: true,
-      contextIsolation: false,
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, 'preload.js'),
     },
     icon: path.join(__dirname, '..', 'renderer', 'icon.png'),
   });

@@ -125,6 +125,8 @@ interface AppState {
   setActiveTab: (tab: 'chat' | 'diff' | 'terminal') => void;
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
+  showToolOutputDetails: boolean;
+  setShowToolOutputDetails: (show: boolean) => void;
 
   // Theme
   theme: 'light' | 'dark' | 'system';
@@ -132,6 +134,7 @@ interface AppState {
 }
 
 let threadCounter = 0;
+let fetchModelsRequestId = 0;
 
 const appStore = create<AppState>()(
   persist(
@@ -161,18 +164,23 @@ const appStore = create<AppState>()(
       availableModels: [...FALLBACK_MODELS],
       modelsLoading: false,
       fetchModels: async () => {
-        if (typeof window === 'undefined' || !(window as any).require) return;
+        const api = typeof window !== 'undefined' ? window.electronAPI : null;
+        if (!api) return;
+        const requestId = ++fetchModelsRequestId;
         set({ modelsLoading: true });
         try {
-          const { ipcRenderer } = (window as any).require('electron');
-          const result = await ipcRenderer.invoke('agent:list-models');
+          const result = await api.invoke('agent:list-models');
+          // Only apply if this is still the latest request.
+          if (requestId !== fetchModelsRequestId) return;
           if (result.success && result.models.length > 0) {
             set({ availableModels: result.models });
           }
         } catch {
           // keep fallback models
         }
-        set({ modelsLoading: false });
+        if (requestId === fetchModelsRequestId) {
+          set({ modelsLoading: false });
+        }
       },
 
       // Threads
@@ -352,6 +360,8 @@ const appStore = create<AppState>()(
       setActiveTab: (tab) => set({ activeTab: tab }),
       showSettings: false,
       setShowSettings: (show) => set({ showSettings: show }),
+      showToolOutputDetails: false,
+      setShowToolOutputDetails: (show) => set({ showToolOutputDetails: show }),
 
       // Theme
       theme: 'system',
@@ -370,13 +380,40 @@ const appStore = create<AppState>()(
         threads: state.threads,
         activeThreadId: state.activeThreadId,
         mcpServers: state.mcpServers,
+        showToolOutputDetails: state.showToolOutputDetails,
         theme: state.theme,
       }),
+      storage: {
+        getItem: (name) => {
+          try {
+            const str = localStorage.getItem(name);
+            return str ? JSON.parse(str) : null;
+          } catch {
+            return null;
+          }
+        },
+        setItem: (name, value) => {
+          try {
+            const str = JSON.stringify(value);
+            // Guard against exceeding localStorage quota (~5MB).
+            if (str.length > 4 * 1024 * 1024) {
+              console.warn('Loom state too large to persist, skipping save');
+              return;
+            }
+            localStorage.setItem(name, str);
+          } catch {
+            // Quota exceeded or serialization error — skip silently.
+          }
+        },
+        removeItem: (name) => { localStorage.removeItem(name); },
+      },
     },
   ),
 );
 
-// Expose store for testing/debugging
-(window as any).__appStore = appStore;
+// Expose store for testing/debugging (development only)
+if (process.env.NODE_ENV !== 'production') {
+  (window as any).__appStore = appStore;
+}
 
 export const useAppStore = appStore;

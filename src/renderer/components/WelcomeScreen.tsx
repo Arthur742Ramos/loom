@@ -9,13 +9,16 @@ export const WelcomeScreen: React.FC = () => {
   const createThread = useAppStore((s) => s.createThread);
 
   const handleOpenProject = async () => {
-    if (typeof window !== 'undefined' && (window as any).require) {
-      const { ipcRenderer } = (window as any).require('electron');
-      const path = await ipcRenderer.invoke('project:select-dir');
+    const api = window.electronAPI;
+    if (!api) return;
+    try {
+      const path = await api.invoke('project:select-dir');
       if (path) {
         const name = path.split(/[/\\]/).pop() || path;
         setProject(path, name);
       }
+    } catch {
+      // Dialog cancelled or IPC error
     }
   };
 

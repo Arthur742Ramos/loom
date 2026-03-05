@@ -45,7 +45,7 @@ async function waitForThreadCompletion(page: Page, threadId: string): Promise<vo
   }, threadId);
 }
 
-test('renders thinking and tool-call results in-thread', async () => {
+test('renders thinking and tool-call entries with quiet tool output by default', async () => {
   const script = JSON.stringify({
     byPrompt: {
       'run tools and show reasoning': [
@@ -69,6 +69,11 @@ test('renders thinking and tool-call results in-thread', async () => {
 
     await expect(page.getByText('final scripted response')).toBeVisible();
     await expect(page.getByText('read_bash')).toBeVisible();
+    await expect(page.getByText('Tool result output')).toHaveCount(0);
+    await page.evaluate(() => {
+      const store = (window as any).__appStore;
+      store.getState().setShowToolOutputDetails(true);
+    });
     await expect(page.getByText('Tool result output')).toBeVisible();
     await page.getByText('Thinking').first().click();
     await expect(page.getByText('Reasoning trace from script')).toBeVisible();

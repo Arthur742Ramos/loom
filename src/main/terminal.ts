@@ -1,27 +1,48 @@
-import { ipcMain } from 'electron';
+import { app, ipcMain } from 'electron';
 import * as os from 'os';
 
 // node-pty is loaded dynamically to avoid build issues
-let pty: any;
-try {
-  pty = require('node-pty');
-} catch {
-  console.warn('node-pty not available — terminal disabled');
+function loadPty(): any {
+  try {
+    return require('node-pty');
+  } catch {
+    console.warn('node-pty not available — terminal disabled');
+    return null;
+  }
 }
 
 const terminals = new Map<string, any>();
 
-export function setupTerminalHandlers() {
+// Kill all terminals on app exit to prevent orphaned shell processes.
+app.on('before-quit', () => {
+  for (const [id, term] of terminals) {
+    try { term.kill(); } catch {}
+    terminals.delete(id);
+  }
+});
+
+export function setupTerminalHandlers(ptyOverride?: any) {
+  const pty = ptyOverride !== undefined ? ptyOverride : loadPty();
   ipcMain.handle('terminal:create', (_event, threadId: string, cwd: string) => {
     if (!pty) return { error: 'node-pty not available' };
 
     const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
+
+    // Sanitize environment — strip sensitive variables before passing to child shell.
+    const safeEnv: Record<string, string> = {};
+    const sensitiveKeys = /^(GITHUB_TOKEN|GITHUB_COPILOT_TOKEN|GH_TOKEN|AZURE_|AWS_|SECRET|PASSWORD|PRIVATE_KEY|LOOM_TEST)/i;
+    for (const [k, v] of Object.entries(process.env)) {
+      if (v !== undefined && !sensitiveKeys.test(k)) {
+        safeEnv[k] = v;
+      }
+    }
+
     const term = pty.spawn(shell, [], {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
       cwd,
-      env: process.env as Record<string, string>,
+      env: safeEnv,
     });
 
     terminals.set(threadId, term);

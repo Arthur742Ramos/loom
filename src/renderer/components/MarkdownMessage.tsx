@@ -9,7 +9,7 @@ interface MarkdownMessageProps {
 }
 
 /** Renders assistant markdown with styled prose, code blocks, and GFM tables. */
-export const MarkdownMessage: React.FC<MarkdownMessageProps> = ({ content, className }) => {
+export const MarkdownMessage: React.FC<MarkdownMessageProps> = React.memo(({ content, className }) => {
   return (
     <div className={cn('markdown-body', className)}>
       <ReactMarkdown
@@ -91,4 +91,4 @@ export const MarkdownMessage: React.FC<MarkdownMessageProps> = ({ content, class
     </ReactMarkdown>
     </div>
   );
-};
+});

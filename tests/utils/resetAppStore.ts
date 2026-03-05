@@ -17,6 +17,7 @@ export function resetAppStore(): void {
     sidebarCollapsed: false,
     activeTab: 'chat',
     showSettings: false,
+    showToolOutputDetails: false,
     theme: 'system',
   });
 

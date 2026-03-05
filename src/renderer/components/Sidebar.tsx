@@ -42,36 +42,34 @@ export const Sidebar: React.FC = () => {
   const [agentsLoading, setAgentsLoading] = useState(false);
 
   const loadSkills = async () => {
-    if (!projectPath || typeof window === 'undefined' || !(window as any).require) return;
+    if (!projectPath || !window.electronAPI) return;
     setSkillsLoading(true);
     try {
-      const { ipcRenderer } = (window as any).require('electron');
-      const result = await ipcRenderer.invoke('agent:list-skills', projectPath);
+      const result = await window.electronAPI.invoke('agent:list-skills', projectPath);
       setSkills(result || []);
     } catch { setSkills([]); }
     setSkillsLoading(false);
   };
 
   const loadAgents = async () => {
-    if (!projectPath || typeof window === 'undefined' || !(window as any).require) return;
+    if (!projectPath || !window.electronAPI) return;
     setAgentsLoading(true);
     try {
-      const { ipcRenderer } = (window as any).require('electron');
-      const result = await ipcRenderer.invoke('agent:list-agents', projectPath);
+      const result = await window.electronAPI.invoke('agent:list-agents', projectPath);
       setAgents(result || []);
     } catch { setAgents([]); }
     setAgentsLoading(false);
   };
 
   const handleOpenProject = async () => {
-    if (typeof window !== 'undefined' && (window as any).require) {
-      const { ipcRenderer } = (window as any).require('electron');
-      const path = await ipcRenderer.invoke('project:select-dir');
+    if (!window.electronAPI) return;
+    try {
+      const path = await window.electronAPI.invoke('project:select-dir');
       if (path) {
         const name = path.split(/[/\\]/).pop() || path;
         setProject(path, name);
       }
-    }
+    } catch {}
   };
 
   const handleNewThread = (path?: string, name?: string) => {
@@ -84,18 +82,16 @@ export const Sidebar: React.FC = () => {
     createThread('New thread', 'local');
   };
 
-  const ipcRenderer = typeof window !== 'undefined' && (window as any).require
-    ? (window as any).require('electron').ipcRenderer
-    : null;
+  const api = typeof window !== 'undefined' ? window.electronAPI ?? null : null;
 
   const checkAuthStatus = async () => {
-    if (!ipcRenderer) return;
+    if (!api) return;
     setLoginLoading(true);
     try {
-      const result = await ipcRenderer.invoke('auth:get-user');
+      const result = await api.invoke('auth:get-user');
       if (result.authenticated) {
         setGitHubUser(result.user);
-        fetchModels(); // refresh models after auth
+        fetchModels();
       } else {
         setGitHubUser(null);
       }
@@ -106,19 +102,22 @@ export const Sidebar: React.FC = () => {
   };
 
   const handleLogin = async () => {
-    if (!ipcRenderer) return;
+    if (!api) return;
     setLoginLoading(true);
-    const result = await ipcRenderer.invoke('auth:login');
-    if (!result.success) {
-      setLoginLoading(false);
+    try {
+      const result = await api.invoke('auth:login');
+      if (!result.success) {
+        // Login failed
+      }
+    } catch {
+      // IPC error
     }
-    // After login window opens, user needs to click "Check status"
     setLoginLoading(false);
   };
 
   const handleLogout = async () => {
-    if (!ipcRenderer) return;
-    await ipcRenderer.invoke('auth:logout');
+    if (!api) return;
+    await api.invoke('auth:logout');
     setGitHubUser(null);
   };
 
@@ -159,9 +158,8 @@ export const Sidebar: React.FC = () => {
           )}
           onClick={() => {
             setShowMcp(!showMcp);
-            if (!showMcp && projectPath) {
-              const { ipcRenderer } = (window as any).require('electron');
-              ipcRenderer.invoke('agent:list-project-mcp', projectPath).then((r: any) => setProjectMcp(r || {}));
+            if (!showMcp && projectPath && window.electronAPI) {
+              window.electronAPI.invoke('agent:list-project-mcp', projectPath).then((r: any) => setProjectMcp(r || {}));
             }
           }}
         >
@@ -263,7 +261,7 @@ export const Sidebar: React.FC = () => {
                 key={`skill-${skill.name}-${i}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
-                  const input = document.querySelector('textarea');
+                  const input = document.querySelector('textarea[data-loom-chat-input]') as HTMLTextAreaElement | null;
                   if (input) {
                     const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
                     nativeSet?.call(input, input.value + `@${skill.name} `);
@@ -306,7 +304,7 @@ export const Sidebar: React.FC = () => {
                 key={`agent-${agent.name}-${i}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
-                  const input = document.querySelector('textarea');
+                  const input = document.querySelector('textarea[data-loom-chat-input]') as HTMLTextAreaElement | null;
                   if (input) {
                     const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
                     nativeSet?.call(input, input.value + `@${agent.name} `);

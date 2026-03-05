@@ -9,6 +9,8 @@ export const SettingsPanel: React.FC = () => {
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const theme = useAppStore((s) => s.theme);
   const setTheme = useAppStore((s) => s.setTheme);
+  const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
+  const setShowToolOutputDetails = useAppStore((s) => s.setShowToolOutputDetails);
 
   if (!showSettings) return null;
 
@@ -19,8 +21,9 @@ export const SettingsPanel: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="settings-panel">
-      <div className="bg-card rounded-2xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="settings-panel"
+      onClick={(e) => { if (e.target === e.currentTarget) setShowSettings(false); }}>
+      <div className="bg-card rounded-2xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-semibold text-foreground">Settings</h2>
@@ -57,6 +60,26 @@ export const SettingsPanel: React.FC = () => {
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Chat */}
+        <div className="px-6 py-5 border-t">
+          <h3 className="text-sm font-medium text-foreground mb-3">Chat</h3>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              data-testid="settings-tool-output-toggle"
+              type="checkbox"
+              className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
+              checked={showToolOutputDetails}
+              onChange={(e) => setShowToolOutputDetails(e.target.checked)}
+            />
+            <div>
+              <p className="text-sm text-foreground">Show tool output details</p>
+              <p className="text-xs text-muted-foreground">
+                When off, tool names and status stay visible while verbose tool output is hidden.
+              </p>
+            </div>
+          </label>
         </div>
 
         {/* Version */}

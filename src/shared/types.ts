@@ -3,12 +3,22 @@
 export interface Thread {
   id: string;
   title: string;
+  cliSessionId: string;
   projectPath: string;
+  projectName: string;
   mode: 'local' | 'worktree';
   status: 'idle' | 'running' | 'completed' | 'error';
   createdAt: number;
   messages: Message[];
   worktreePath?: string;
+}
+
+export interface ToolCallEntry {
+  id: string;
+  toolName: string;
+  status: 'running' | 'done' | 'error';
+  result?: string;
+  error?: string;
 }
 
 export interface Message {
@@ -17,6 +27,8 @@ export interface Message {
   content: string;
   timestamp: number;
   status?: 'pending' | 'streaming' | 'done' | 'error';
+  thinking?: string;
+  toolCalls?: ToolCallEntry[];
   diff?: DiffEntry[];
   files?: FileChange[];
 }

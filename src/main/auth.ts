@@ -1,4 +1,5 @@
 import { ipcMain, shell } from 'electron';
+import { execSync, execFileSync, spawn } from 'child_process';
 
 interface GitHubUser {
   login: string;
@@ -24,8 +25,7 @@ function getTestUser(): GitHubUser | null {
 
 async function getTokenFromGhCli(): Promise<string | null> {
   try {
-    const { execSync } = require('child_process');
-    const token = execSync('gh auth token', { encoding: 'utf-8' }).trim();
+    const token = execSync('gh auth token', { encoding: 'utf-8', timeout: 10000 }).trim();
     return token || null;
   } catch {
     return null;
@@ -84,10 +84,9 @@ export function setupAuthHandlers() {
     }
 
     try {
-      const { execFileSync } = require('child_process');
       // Check if gh is installed
       try {
-        execFileSync('gh', ['--version'], { encoding: 'utf-8' });
+        execFileSync('gh', ['--version'], { encoding: 'utf-8', timeout: 5000 });
       } catch {
         // gh CLI not installed — open install page
         shell.openExternal('https://cli.github.com');
@@ -95,7 +94,6 @@ export function setupAuthHandlers() {
       }
 
       // Launch gh auth login in a visible terminal so user can complete the flow
-      const { spawn } = require('child_process');
       const isWin = process.platform === 'win32';
 
       if (isWin) {
@@ -127,8 +125,7 @@ export function setupAuthHandlers() {
     }
 
     try {
-      const { execSync } = require('child_process');
-      execSync('gh auth logout -h github.com', { encoding: 'utf-8', input: 'Y\n' });
+      execSync('gh auth logout -h github.com', { encoding: 'utf-8', input: 'Y\n', timeout: 10000 });
       return { success: true };
     } catch {
       return { success: true }; // Already logged out
