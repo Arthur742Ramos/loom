@@ -494,6 +494,10 @@ export function setupAgentHandlers() {
   ipcMain.handle('agent:list-models', async () => {
     try {
       const client = await getClient();
+      // Ensure the client connection is established (listModels doesn't auto-start).
+      await client.start?.();
+      // Clear the SDK's internal cache so we always fetch a fresh list.
+      (client as any).modelsCache = null;
       const models = await client.listModels();
       return {
         success: true,
