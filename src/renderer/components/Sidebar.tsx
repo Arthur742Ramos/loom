@@ -34,8 +34,11 @@ export const Sidebar: React.FC = () => {
   const showSettings = useAppStore((s) => s.showSettings);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const [showSkills, setShowSkills] = useState(false);
-  const [skills, setSkills] = useState<{ name: string; path: string; description: string; category: string }[]>([]);
+  const [skills, setSkills] = useState<{ name: string; path: string; description: string }[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
+  const [showAgents, setShowAgents] = useState(false);
+  const [agents, setAgents] = useState<{ name: string; path: string; description: string }[]>([]);
+  const [agentsLoading, setAgentsLoading] = useState(false);
 
   const loadSkills = async () => {
     if (!projectPath || typeof window === 'undefined' || !(window as any).require) return;
@@ -46,6 +49,17 @@ export const Sidebar: React.FC = () => {
       setSkills(result || []);
     } catch { setSkills([]); }
     setSkillsLoading(false);
+  };
+
+  const loadAgents = async () => {
+    if (!projectPath || typeof window === 'undefined' || !(window as any).require) return;
+    setAgentsLoading(true);
+    try {
+      const { ipcRenderer } = (window as any).require('electron');
+      const result = await ipcRenderer.invoke('agent:list-agents', projectPath);
+      setAgents(result || []);
+    } catch { setAgents([]); }
+    setAgentsLoading(false);
   };
 
   const handleOpenProject = async () => {
@@ -218,41 +232,71 @@ export const Sidebar: React.FC = () => {
             {!skillsLoading && skills.length === 0 && (
               <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
                 <p>No skills found.</p>
-                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/agents/</code></p>
+                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code></p>
               </div>
             )}
             {skills.map((skill, i) => (
               <button
-                key={`${skill.category}-${skill.name}-${i}`}
+                key={`skill-${skill.name}-${i}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
-                  // Insert skill mention into the active thread's next message
-                  if (typeof window !== 'undefined' && (window as any).__appStore) {
-                    const input = document.querySelector('textarea');
-                    if (input) {
-                      const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-                      nativeSet?.call(input, input.value + `@${skill.name} `);
-                      input.dispatchEvent(new Event('input', { bubbles: true }));
-                      input.focus();
-                    }
+                  const input = document.querySelector('textarea');
+                  if (input) {
+                    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                    nativeSet?.call(input, input.value + `@${skill.name} `);
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.focus();
                   }
                 }}
                 title={`Click to mention @${skill.name} in chat`}
               >
-                <span className="mt-0.5 shrink-0">
-                  {skill.category === 'agent' ? '🤖' : skill.category === 'chatmode' ? '💬' : skill.category === 'instructions' ? '📋' : '⚡'}
-                </span>
+                <span className="mt-0.5 shrink-0">⚡</span>
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <p className="font-medium text-foreground truncate">{skill.name}</p>
-                    <span className={cn('text-[9px] px-1 py-px rounded font-medium shrink-0',
-                      skill.category === 'agent' ? 'bg-purple-100 text-purple-700'
-                        : skill.category === 'chatmode' ? 'bg-blue-100 text-blue-700'
-                        : skill.category === 'instructions' ? 'bg-amber-100 text-amber-700'
-                        : 'bg-green-100 text-green-700'
-                    )}>{skill.category}</span>
-                  </div>
+                  <p className="font-medium text-foreground truncate">{skill.name}</p>
                   {skill.description && <p className="text-muted-foreground truncate">{skill.description}</p>}
+                </div>
+              </button>
+            ))}
+          </div>
+        )}
+        <button
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
+            showAgents && 'bg-secondary',
+          )}
+          onClick={() => { setShowAgents(!showAgents); if (!showAgents) loadAgents(); }}
+        >
+          <GitBranch className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
+          Agents
+        </button>
+        {showAgents && (
+          <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
+            {agentsLoading && <p className="text-[11px] text-muted-foreground/60 py-1">Loading...</p>}
+            {!agentsLoading && agents.length === 0 && (
+              <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
+                <p>No agents found.</p>
+                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/agents/</code></p>
+              </div>
+            )}
+            {agents.map((agent, i) => (
+              <button
+                key={`agent-${agent.name}-${i}`}
+                className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
+                onClick={() => {
+                  const input = document.querySelector('textarea');
+                  if (input) {
+                    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                    nativeSet?.call(input, input.value + `@${agent.name} `);
+                    input.dispatchEvent(new Event('input', { bubbles: true }));
+                    input.focus();
+                  }
+                }}
+                title={`Click to mention @${agent.name} in chat`}
+              >
+                <span className="mt-0.5 shrink-0">🤖</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-foreground truncate">{agent.name}</p>
+                  {agent.description && <p className="text-muted-foreground truncate">{agent.description}</p>}
                 </div>
               </button>
             ))}

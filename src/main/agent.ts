@@ -31,9 +31,10 @@ interface AgentRequest {
     cwd?: string;
   };
   model?: string;
-  reasoningEffort?: 'low' | 'medium' | 'high';
+  reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   permissionMode?: 'ask' | 'auto' | 'deny';
   mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
+  customAgents?: { name: string; displayName?: string; description?: string; prompt: string; tools?: string[] | null }[];
 }
 
 function findCopilotPath(): string {
@@ -98,6 +99,27 @@ function isConnectionError(err: unknown): boolean {
   return /Connection is closed|Connection is disposed|ERR_STREAM_DESTROYED|write after a stream was destroyed|Pending response rejected/i.test(message);
 }
 
+function loadAgentsFromProject(cwd?: string): any[] {
+  if (!cwd) return [];
+  const agentDir = path.join(cwd, '.github', 'agents');
+  try {
+    if (!fs.existsSync(agentDir)) return [];
+    return fs.readdirSync(agentDir)
+      .filter(f => f.endsWith('.md'))
+      .map(f => {
+        const content = fs.readFileSync(path.join(agentDir, f), 'utf-8');
+        const name = f.replace(/\.md$/, '').replace(/\.agent$/, '');
+        const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || name;
+        return {
+          name,
+          displayName: firstLine.substring(0, 60),
+          description: firstLine.substring(0, 100),
+          prompt: content,
+        };
+      });
+  } catch { return []; }
+}
+
 async function getOrCreateSession(client: any, request: AgentRequest, sender: Electron.WebContents): Promise<any> {
   const permissionMode = request.permissionMode || 'ask';
 
@@ -143,15 +165,17 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     });
   };
 
+  const projectAgents = loadAgentsFromProject(request.context?.cwd);
   const baseConfig = {
     model: request.model,
-    reasoningEffort: request.reasoningEffort,
+    reasoningEffort: request.reasoningEffort as any,
     workingDirectory: request.context?.cwd,
     configDir: request.context?.cwd,
     streaming: true,
     onPermissionRequest,
     onUserInputRequest,
     mcpServers: request.mcpServers,
+    customAgents: [...projectAgents, ...(request.customAgents || [])],
   };
 
   // Try to resume an existing session (preserves conversation history with a fresh connection).
@@ -349,45 +373,53 @@ export function setupAgentHandlers() {
     }
   });
 
-  // List skill files discovered in the project directory.
+  // List skill files from the project.
   ipcMain.handle('agent:list-skills', async (_event, projectPath: string) => {
-    const skillDirs = [
-      { dir: path.join(projectPath, '.github', 'agents'), category: 'agent' },
-      { dir: path.join(projectPath, '.github', 'chatmodes'), category: 'chatmode' },
-      { dir: path.join(projectPath, '.github', 'copilot', 'skills'), category: 'skill' },
-      { dir: path.join(projectPath, '.copilot', 'skills'), category: 'skill' },
-    ];
-    const skills: { name: string; path: string; description: string; category: string }[] = [];
+    const results: { name: string; path: string; description: string }[] = [];
 
-    // Also check for copilot-instructions.md
+    // copilot-instructions.md
     const instructionsPath = path.join(projectPath, '.github', 'copilot-instructions.md');
     if (fs.existsSync(instructionsPath)) {
-      skills.push({
-        name: 'copilot-instructions',
-        path: instructionsPath,
-        description: 'Project-level instructions for Copilot',
-        category: 'instructions',
-      });
+      results.push({ name: 'copilot-instructions', path: instructionsPath, description: 'Project-level instructions' });
     }
 
-    for (const { dir, category } of skillDirs) {
+    // Skill directories
+    for (const dir of [
+      path.join(projectPath, '.github', 'copilot', 'skills'),
+      path.join(projectPath, '.copilot', 'skills'),
+    ]) {
       try {
         if (!fs.existsSync(dir)) continue;
-        const files = fs.readdirSync(dir).filter(f => f.endsWith('.md') && f !== 'README.md');
-        for (const file of files) {
+        for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.md'))) {
           const filePath = path.join(dir, file);
           const content = fs.readFileSync(filePath, 'utf-8');
+          const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || '';
+          results.push({ name: file.replace(/\.md$/, ''), path: filePath, description: firstLine.substring(0, 100) });
+        }
+      } catch {}
+    }
+    return results;
+  });
+
+  // List custom agents from the project.
+  ipcMain.handle('agent:list-agents', async (_event, projectPath: string) => {
+    const results: { name: string; path: string; description: string }[] = [];
+    const agentDir = path.join(projectPath, '.github', 'agents');
+    try {
+      if (fs.existsSync(agentDir)) {
+        for (const file of fs.readdirSync(agentDir).filter(f => f.endsWith('.md'))) {
+          const filePath = path.join(agentDir, file);
+          const content = fs.readFileSync(filePath, 'utf-8');
           const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '').replace(/^---\s*$/, '') || '';
-          skills.push({
-            name: file.replace(/\.md$/, '').replace(/\.(agent|chatmode)$/, ''),
+          results.push({
+            name: file.replace(/\.md$/, '').replace(/\.agent$/, ''),
             path: filePath,
             description: firstLine.substring(0, 100),
-            category,
           });
         }
-      } catch { /* dir not readable */ }
-    }
-    return skills;
+      }
+    } catch {}
+    return results;
   });
 }
 

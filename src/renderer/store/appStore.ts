@@ -66,8 +66,8 @@ interface AppState {
   // Model
   selectedModel: string;
   setSelectedModel: (model: string) => void;
-  reasoningEffort: 'low' | 'medium' | 'high';
-  setReasoningEffort: (effort: 'low' | 'medium' | 'high') => void;
+  reasoningEffort: 'low' | 'medium' | 'high' | 'xhigh';
+  setReasoningEffort: (effort: 'low' | 'medium' | 'high' | 'xhigh') => void;
   availableModels: ModelInfo[];
   modelsLoading: boolean;
   fetchModels: () => Promise<void>;

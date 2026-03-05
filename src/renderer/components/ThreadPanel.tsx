@@ -540,7 +540,7 @@ export const ThreadPanel: React.FC = () => {
               <div className="flex items-center gap-2">
                 <ModelPicker value={selectedModel} onChange={setSelectedModel} />
                 <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
-                  {(['low', 'medium', 'high'] as const).map((level) => (
+                  {(['low', 'medium', 'high', 'xhigh'] as const).map((level) => (
                     <button
                       key={level}
                       onClick={() => setReasoningEffort(level)}
@@ -552,7 +552,7 @@ export const ThreadPanel: React.FC = () => {
                       )}
                       title={`Reasoning effort: ${level}`}
                     >
-                      {level === 'low' ? '⚡' : level === 'medium' ? '⚖️' : '🧠'}
+                      {level === 'low' ? '⚡' : level === 'medium' ? '⚖️' : level === 'high' ? '🧠' : '💎'}
                     </button>
                   ))}
                 </div>
@@ -739,12 +739,30 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
         const { FitAddon } = await import('@xterm/addon-fit');
         const term = new Terminal({
           theme: {
-            background: '#f8f8f8',
-            foreground: '#1a1a1a',
-            cursor: '#00a37d',
-            selectionBackground: '#b4d5fe',
+            background: '#1a1b26',
+            foreground: '#c0caf5',
+            cursor: '#c0caf5',
+            cursorAccent: '#1a1b26',
+            selectionBackground: '#33467c',
+            selectionForeground: '#c0caf5',
+            black: '#15161e',
+            red: '#f7768e',
+            green: '#9ece6a',
+            yellow: '#e0af68',
+            blue: '#7aa2f7',
+            magenta: '#bb9af7',
+            cyan: '#7dcfff',
+            white: '#a9b1d6',
+            brightBlack: '#414868',
+            brightRed: '#f7768e',
+            brightGreen: '#9ece6a',
+            brightYellow: '#e0af68',
+            brightBlue: '#7aa2f7',
+            brightMagenta: '#bb9af7',
+            brightCyan: '#7dcfff',
+            brightWhite: '#c0caf5',
           },
-          fontFamily: "'Cascadia Code', 'Fira Code', 'Consolas', monospace",
+          fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace",
           fontSize: 13,
           cursorBlink: true,
         });
@@ -780,9 +798,9 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
 
   return (
     <div className="flex-1 flex flex-col relative bg-background">
-      <div className="flex-1 p-2" ref={termRef} />
+      <div className="flex-1 p-2 bg-[#1a1b26]" ref={termRef} />
       {!connected && (
-        <div className="absolute inset-0 flex items-center justify-center text-muted-foreground text-sm">
+        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1b26] text-[#c0caf5] text-sm">
           Connecting terminal...
         </div>
       )}
