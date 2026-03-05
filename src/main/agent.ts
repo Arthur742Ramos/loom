@@ -25,6 +25,7 @@ const canceledThreads = new Set<string>();
 
 interface AgentRequest {
   threadId: string;
+  requestId?: string;
   cliSessionId?: string;
   message: string;
   context?: {
@@ -37,7 +38,53 @@ interface AgentRequest {
   customAgents?: { name: string; displayName?: string; description?: string; prompt: string; tools?: string[] | null }[];
 }
 
-function findCopilotPath(): string {
+type StreamPayload = { type: string } & Record<string, unknown>;
+
+interface ScriptedTestEvent {
+  type: 'status' | 'thinking' | 'tool_start' | 'tool_end' | 'chunk' | 'done' | 'error';
+  status?: string;
+  content?: string;
+  toolCallId?: string;
+  toolName?: string;
+  success?: boolean;
+  result?: string;
+  error?: string;
+  delayMs?: number;
+}
+
+function sendStream(sender: Electron.WebContents, request: AgentRequest, payload: StreamPayload): void {
+  sender.send(
+    'agent:stream',
+    request.threadId,
+    request.requestId ? { ...payload, requestId: request.requestId } : payload,
+  );
+}
+
+function getScriptedTestEvents(request: AgentRequest): ScriptedTestEvent[] | null {
+  const raw = process.env.LOOM_TEST_AGENT_SCRIPT || process.env.LOOM_TEST_AGENT_EVENTS;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as any;
+    if (Array.isArray(parsed)) return parsed;
+    if (Array.isArray(parsed?.events)) return parsed.events;
+    if (parsed?.byPrompt && Array.isArray(parsed.byPrompt[request.message])) {
+      return parsed.byPrompt[request.message];
+    }
+    if (Array.isArray(parsed?.default)) return parsed.default;
+    if (parsed?.[request.message] && Array.isArray(parsed[request.message])) {
+      return parsed[request.message];
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+const sleep = async (ms: number): Promise<void> => {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+};
+
+export function findCopilotPath(): string {
   try {
     if (process.platform === 'win32') {
       // Prefer the real .exe over npm shims in node_modules/.bin.
@@ -94,12 +141,12 @@ async function resetClient(): Promise<void> {
   }
 }
 
-function isConnectionError(err: unknown): boolean {
+export function isConnectionError(err: unknown): boolean {
   const message = String((err as any)?.message || err || '');
   return /Connection is closed|Connection is disposed|ERR_STREAM_DESTROYED|write after a stream was destroyed|Pending response rejected/i.test(message);
 }
 
-function loadAgentsFromProject(cwd?: string): any[] {
+export function loadAgentsFromProject(cwd?: string): any[] {
   if (!cwd) return [];
   const agentDir = path.join(cwd, '.github', 'agents');
   try {
@@ -120,7 +167,7 @@ function loadAgentsFromProject(cwd?: string): any[] {
   } catch { return []; }
 }
 
-function loadMcpFromProject(cwd?: string): Record<string, any> {
+export function loadMcpFromProject(cwd?: string): Record<string, any> {
   if (!cwd) return {};
   const candidates = [
     path.join(cwd, '.vscode', 'mcp.json'),
@@ -247,6 +294,31 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
 
 export function setupAgentHandlers() {
   ipcMain.on('agent:send', async (event, request: AgentRequest) => {
+    if (process.env.LOOM_TEST_MODE === '1') {
+      const mockContent = process.env.LOOM_TEST_AGENT_RESPONSE || `Mock response: ${request.message}`;
+      const scriptedEvents = getScriptedTestEvents(request);
+      if (scriptedEvents && scriptedEvents.length > 0) {
+        for (const scriptedEvent of scriptedEvents) {
+          if (scriptedEvent.delayMs && scriptedEvent.delayMs > 0) {
+            await sleep(scriptedEvent.delayMs);
+          }
+          const { delayMs: _delayMs, ...payload } = scriptedEvent;
+          sendStream(event.sender, request, payload as StreamPayload);
+        }
+        if (!scriptedEvents.some((evt) => evt.type === 'done' || evt.type === 'error')) {
+          sendStream(event.sender, request, { type: 'done', content: mockContent });
+        }
+      } else {
+        sendStream(event.sender, request, {
+          type: 'status',
+          status: 'Running mocked response',
+        });
+        sendStream(event.sender, request, { type: 'chunk', content: mockContent });
+        sendStream(event.sender, request, { type: 'done', content: mockContent });
+      }
+      return;
+    }
+
     const runOnce = async () => {
       let unsubscribe: (() => void) | undefined;
       try {
@@ -267,56 +339,64 @@ export function setupAgentHandlers() {
         inFlightSessions.set(request.threadId, session);
 
         let toolCallCounter = 0;
-        const toolCallStack: string[] = [];
+        const nextFallbackToolCallId = () => `tc-${++toolCallCounter}`;
         unsubscribe = session.on((evt: any) => {
           if (evt.type === 'assistant.message_delta') {
             const content = evt.data?.deltaContent || evt.data?.content || '';
             if (content) {
-              event.sender.send('agent:stream', request.threadId, { type: 'chunk', content });
+              sendStream(event.sender, request, { type: 'chunk', content });
+            }
+          } else if (evt.type === 'assistant.reasoning') {
+            const content = evt.data?.content || '';
+            if (content) {
+              sendStream(event.sender, request, { type: 'thinking', content });
             }
           } else if (evt.type === 'assistant.reasoning_delta') {
             const content = evt.data?.deltaContent || '';
             if (content) {
-              event.sender.send('agent:stream', request.threadId, { type: 'thinking', content });
+              sendStream(event.sender, request, { type: 'thinking', content });
             }
           } else if (evt.type === 'assistant.intent') {
-            event.sender.send('agent:stream', request.threadId, {
+            sendStream(event.sender, request, {
               type: 'status', status: evt.data?.intent || 'Working...',
             });
           } else if (evt.type === 'tool.execution_start') {
-            const toolCallId = `tc-${++toolCallCounter}`;
-            toolCallStack.push(toolCallId);
-            event.sender.send('agent:stream', request.threadId, {
+            const toolCallId = evt.data?.toolCallId || nextFallbackToolCallId();
+            sendStream(event.sender, request, {
               type: 'tool_start',
               toolCallId,
               toolName: evt.data?.toolName || 'tool',
             });
-          } else if (evt.type === 'tool.execution_complete') {
-            const toolCallId = toolCallStack.pop() || '';
-            event.sender.send('agent:stream', request.threadId, {
+          } else if (evt.type === 'tool.execution_complete' || evt.type === 'tool.execution_end') {
+            const toolCallId = evt.data?.toolCallId || '';
+            sendStream(event.sender, request, {
               type: 'tool_end',
               toolCallId,
+              success: evt.data?.success,
+              result: evt.data?.result?.detailedContent || evt.data?.result?.content,
+              error: evt.data?.error?.message,
             });
           } else if (evt.type === 'skill.invoked') {
-            event.sender.send('agent:stream', request.threadId, {
+            sendStream(event.sender, request, {
               type: 'status', status: `⚡ Skill: ${evt.data?.name || 'unknown'}`,
             });
           } else if (evt.type === 'subagent.started') {
-            const toolCallId = `tc-${++toolCallCounter}`;
-            toolCallStack.push(toolCallId);
-            event.sender.send('agent:stream', request.threadId, {
+            const toolCallId = evt.data?.toolCallId || nextFallbackToolCallId();
+            sendStream(event.sender, request, {
               type: 'tool_start',
               toolCallId,
               toolName: `🤖 ${evt.data?.agentDisplayName || evt.data?.agentName || 'subagent'}`,
             });
           } else if (evt.type === 'subagent.completed' || evt.type === 'subagent.failed') {
-            const toolCallId = toolCallStack.pop() || '';
-            event.sender.send('agent:stream', request.threadId, {
+            const toolCallId = evt.data?.toolCallId || '';
+            sendStream(event.sender, request, {
               type: 'tool_end',
               toolCallId,
+              success: evt.type === 'subagent.completed',
+              error: evt.type === 'subagent.failed' ? evt.data?.error || 'Subagent failed' : undefined,
             });
           } else if (evt.type === 'session.error') {
-            event.sender.send('agent:stream', request.threadId, {
+            sendStream(event.sender, request, {
               type: 'error',
               content: evt.data?.message || 'Unknown error',
             });
@@ -327,7 +407,7 @@ export function setupAgentHandlers() {
         // Send the final complete content so the renderer can fill in any
         // gaps left by streaming deltas (e.g. tool-heavy agentic responses).
         const finalContent = result?.data?.content;
-        event.sender.send('agent:stream', request.threadId, {
+        sendStream(event.sender, request, {
           type: 'done',
           content: typeof finalContent === 'string' ? finalContent : undefined,
         });
@@ -346,7 +426,7 @@ export function setupAgentHandlers() {
     } catch (err: any) {
       if (canceledThreads.has(request.threadId)) {
         canceledThreads.delete(request.threadId);
-        event.sender.send('agent:stream', request.threadId, { type: 'done' });
+        sendStream(event.sender, request, { type: 'done' });
         return;
       }
 
@@ -357,7 +437,7 @@ export function setupAgentHandlers() {
           await runOnce();
           return;
         } catch (retryErr: any) {
-          event.sender.send('agent:stream', request.threadId, {
+          sendStream(event.sender, request, {
             type: 'error',
             content: `Failed to initialize Copilot SDK: ${retryErr.message || 'Connection recovery failed'}`,
           });
@@ -365,7 +445,7 @@ export function setupAgentHandlers() {
         }
       }
 
-      event.sender.send('agent:stream', request.threadId, {
+      sendStream(event.sender, request, {
         type: 'error',
         content: err.message || `Failed to initialize Copilot SDK: ${err}`,
       });

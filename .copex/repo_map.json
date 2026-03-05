@@ -1,0 +1,766 @@
+{
+  "version": 1,
+  "generated_at": "2026-03-05T01:11:36.407276+00:00",
+  "root": "/home/arthur/Loom",
+  "files": {
+    "playwright.config.ts": {
+      "path": "playwright.config.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "@playwright/test"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672908433137591,
+      "size": 690
+    },
+    "postcss.config.js": {
+      "path": "postcss.config.js",
+      "language": "javascript",
+      "parser": "regex",
+      "imports": [],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946110038607,
+      "size": 83
+    },
+    "src/main/agent.ts": {
+      "path": "src/main/agent.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "child_process",
+        "electron",
+        "fs",
+        "path"
+      ],
+      "classes": [],
+      "functions": [
+        "findCopilotPath",
+        "getClient",
+        "getOrCreateSession",
+        "isConnectionError",
+        "loadAgentsFromProject",
+        "loadClientClass",
+        "loadMcpFromProject",
+        "onPermissionRequest",
+        "onUserInputRequest",
+        "resetClient",
+        "runOnce",
+        "setupAgentHandlers"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672872327506078,
+      "size": 18210
+    },
+    "src/main/auth.ts": {
+      "path": "src/main/auth.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "child_process",
+        "electron"
+      ],
+      "classes": [],
+      "functions": [
+        "fetchGitHubUser",
+        "getToken",
+        "getTokenFromGhCli",
+        "setupAuthHandlers"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946110038607,
+      "size": 3240
+    },
+    "src/main/git.ts": {
+      "path": "src/main/git.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "electron",
+        "fs",
+        "path",
+        "simple-git"
+      ],
+      "classes": [],
+      "functions": [
+        "getGit",
+        "parseDiff",
+        "setupGitHandlers"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672862604336690,
+      "size": 5535
+    },
+    "src/main/main.ts": {
+      "path": "src/main/main.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "./agent",
+        "./auth",
+        "./git",
+        "./terminal",
+        "electron",
+        "fs",
+        "path"
+      ],
+      "classes": [],
+      "functions": [
+        "createWindow"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672360840496187,
+      "size": 3430
+    },
+    "src/main/terminal.ts": {
+      "path": "src/main/terminal.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "electron",
+        "node-pty",
+        "os"
+      ],
+      "classes": [],
+      "functions": [
+        "setupTerminalHandlers"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1515
+    },
+    "src/renderer/App.tsx": {
+      "path": "src/renderer/App.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "./components/SettingsPanel",
+        "./components/Sidebar",
+        "./components/ThreadPanel",
+        "./components/WelcomeScreen",
+        "./components/ui/tooltip",
+        "./store/appStore",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "apply",
+        "handler"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672894237887067,
+      "size": 1916
+    },
+    "src/renderer/components/LoomIcon.tsx": {
+      "path": "src/renderer/components/LoomIcon.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1385
+    },
+    "src/renderer/components/MarkdownMessage.tsx": {
+      "path": "src/renderer/components/MarkdownMessage.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "react",
+        "react-markdown",
+        "remark-gfm"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 3669
+    },
+    "src/renderer/components/SettingsPanel.tsx": {
+      "path": "src/renderer/components/SettingsPanel.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "../store/appStore",
+        "./ui/button",
+        "lucide-react",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672889088795496,
+      "size": 2502
+    },
+    "src/renderer/components/Sidebar.tsx": {
+      "path": "src/renderer/components/Sidebar.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "../store/appStore",
+        "./LoomIcon",
+        "./ui/button",
+        "./ui/separator",
+        "electron",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "checkAuthStatus",
+        "handleLogin",
+        "handleLogout",
+        "handleNewThread",
+        "handleOpenProject",
+        "loadAgents",
+        "loadSkills"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672878506611698,
+      "size": 23221
+    },
+    "src/renderer/components/ThreadPanel.tsx": {
+      "path": "src/renderer/components/ThreadPanel.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "../store/appStore",
+        "./LoomIcon",
+        "./MarkdownMessage",
+        "./ui/avatar",
+        "./ui/badge",
+        "./ui/button",
+        "./ui/scroll-area",
+        "electron",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "agentStatus",
+        "flushChunks",
+        "handleKeyDown",
+        "handleSend",
+        "handler",
+        "initTerminal",
+        "levels",
+        "loadDiff",
+        "respondToPermission",
+        "respondToUserInput",
+        "scrollToBottom",
+        "statusBadgeVariant",
+        "statusIcon",
+        "toggleFile"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672885383730658,
+      "size": 39431
+    },
+    "src/renderer/components/TitleBar.tsx": {
+      "path": "src/renderer/components/TitleBar.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../store/appStore",
+        "./LoomIcon",
+        "./ui/button",
+        "electron",
+        "lucide-react",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "ipc"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1761
+    },
+    "src/renderer/components/WelcomeScreen.tsx": {
+      "path": "src/renderer/components/WelcomeScreen.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../store/appStore",
+        "./ui/button",
+        "electron",
+        "lucide-react",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "handleOpenProject"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672891919845843,
+      "size": 1915
+    },
+    "src/renderer/components/ui/avatar.tsx": {
+      "path": "src/renderer/components/ui/avatar.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "@radix-ui/react-avatar",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1419
+    },
+    "src/renderer/components/ui/badge.tsx": {
+      "path": "src/renderer/components/ui/badge.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "class-variance-authority",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "Badge"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1046
+    },
+    "src/renderer/components/ui/button.tsx": {
+      "path": "src/renderer/components/ui/button.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "@radix-ui/react-slot",
+        "class-variance-authority",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1770
+    },
+    "src/renderer/components/ui/scroll-area.tsx": {
+      "path": "src/renderer/components/ui/scroll-area.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "@radix-ui/react-scroll-area",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1619
+    },
+    "src/renderer/components/ui/separator.tsx": {
+      "path": "src/renderer/components/ui/separator.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "@radix-ui/react-separator",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 726
+    },
+    "src/renderer/components/ui/tabs.tsx": {
+      "path": "src/renderer/components/ui/tabs.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "@radix-ui/react-tabs",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 1931
+    },
+    "src/renderer/components/ui/tooltip.tsx": {
+      "path": "src/renderer/components/ui/tooltip.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../lib/utils",
+        "@radix-ui/react-tooltip",
+        "react"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946111038624,
+      "size": 888
+    },
+    "src/renderer/index.tsx": {
+      "path": "src/renderer/index.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "./App",
+        "./styles/app.css",
+        "react",
+        "react-dom/client"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946112038641,
+      "size": 237
+    },
+    "src/renderer/lib/utils.ts": {
+      "path": "src/renderer/lib/utils.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "clsx",
+        "tailwind-merge"
+      ],
+      "classes": [],
+      "functions": [
+        "cn"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946112038641,
+      "size": 169
+    },
+    "src/renderer/store/appStore.ts": {
+      "path": "src/renderer/store/appStore.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "electron",
+        "zustand",
+        "zustand/middleware"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672360841496204,
+      "size": 11134
+    },
+    "src/shared/types.ts": {
+      "path": "src/shared/types.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946112038641,
+      "size": 2009
+    },
+    "tailwind.config.js": {
+      "path": "tailwind.config.js",
+      "language": "javascript",
+      "parser": "regex",
+      "imports": [],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946112038641,
+      "size": 1757
+    },
+    "tests/unit/main/agent.test.ts": {
+      "path": "tests/unit/main/agent.test.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../utils/mockIpcMain",
+        "fs",
+        "os",
+        "path",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772673060486801979,
+      "size": 4746
+    },
+    "tests/unit/main/git.test.ts": {
+      "path": "tests/unit/main/git.test.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../utils/mockIpcMain",
+        "fs",
+        "path",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772673044309517863,
+      "size": 3141
+    },
+    "tests/unit/renderer/sidebar.test.tsx": {
+      "path": "tests/unit/renderer/sidebar.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/components/Sidebar",
+        "../../../src/renderer/store/appStore",
+        "../../utils/mockElectronRenderer",
+        "../../utils/resetAppStore",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772673087957286338,
+      "size": 2491
+    },
+    "tests/unit/renderer/welcome-screen.test.tsx": {
+      "path": "tests/unit/renderer/welcome-screen.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/components/WelcomeScreen",
+        "../../../src/renderer/store/appStore",
+        "../../utils/mockElectronRenderer",
+        "../../utils/resetAppStore",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772673079529137718,
+      "size": 1318
+    },
+    "tests/unit/setup.ts": {
+      "path": "tests/unit/setup.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "@testing-library/jest-dom/vitest",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672953562920317,
+      "size": 205
+    },
+    "tests/utils/createGitFixtureRepo.ts": {
+      "path": "tests/utils/createGitFixtureRepo.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "child_process",
+        "fs",
+        "os",
+        "path"
+      ],
+      "classes": [],
+      "functions": [
+        "createGitFixtureRepo"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672991550590491,
+      "size": 1139
+    },
+    "tests/utils/electronApp.ts": {
+      "path": "tests/utils/electronApp.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "path",
+        "playwright"
+      ],
+      "classes": [],
+      "functions": [
+        "launchLoomApp",
+        "setProjectInStore",
+        "stabilizePageForScreenshot",
+        "store"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672999044722305,
+      "size": 1409
+    },
+    "tests/utils/mockElectronRenderer.ts": {
+      "path": "tests/utils/mockElectronRenderer.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "createMockIpcRenderer",
+        "installElectronMock",
+        "originalRequire"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672969646202920,
+      "size": 2409
+    },
+    "tests/utils/mockIpcMain.ts": {
+      "path": "tests/utils/mockIpcMain.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "createMockIpcMain",
+        "emit",
+        "getListener",
+        "invoke",
+        "reset"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672976908333137,
+      "size": 2104
+    },
+    "tests/utils/mockLlm.ts": {
+      "path": "tests/utils/mockLlm.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [],
+      "classes": [],
+      "functions": [
+        "buildMockLlmStream"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672981274410093,
+      "size": 376
+    },
+    "tests/utils/mockMcpServer.ts": {
+      "path": "tests/utils/mockMcpServer.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [],
+      "classes": [],
+      "functions": [
+        "createMockMcpServerConfig"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672986381499876,
+      "size": 900
+    },
+    "tests/utils/resetAppStore.ts": {
+      "path": "tests/utils/resetAppStore.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../src/renderer/store/appStore"
+      ],
+      "classes": [],
+      "functions": [
+        "resetAppStore"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672960483040625,
+      "size": 667
+    },
+    "vitest.config.ts": {
+      "path": "vitest.config.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "vitest/config"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772672904005060575,
+      "size": 528
+    },
+    "webpack.main.config.js": {
+      "path": "webpack.main.config.js",
+      "language": "javascript",
+      "parser": "regex",
+      "imports": [
+        "path"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946112038641,
+      "size": 545
+    },
+    "webpack.renderer.config.js": {
+      "path": "webpack.renderer.config.js",
+      "language": "javascript",
+      "parser": "regex",
+      "imports": [
+        "html-webpack-plugin",
+        "path",
+        "webpack"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772666946112038641,
+      "size": 1091
+    }
+  }
+}

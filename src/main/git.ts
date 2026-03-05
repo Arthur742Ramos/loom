@@ -5,14 +5,14 @@ import * as fs from 'fs';
 
 const gitInstances = new Map<string, SimpleGit>();
 
-interface DiffLine {
+export interface DiffLine {
   type: 'add' | 'del' | 'ctx';
   oldLine: number | null;
   newLine: number | null;
   content: string;
 }
 
-interface DiffHunk {
+export interface DiffHunk {
   oldStart: number;
   oldCount: number;
   newStart: number;
@@ -21,7 +21,7 @@ interface DiffHunk {
   lines: DiffLine[];
 }
 
-interface DiffFile {
+export interface DiffFile {
   path: string;
   oldPath?: string;
   status: 'added' | 'modified' | 'deleted' | 'renamed';
@@ -30,7 +30,7 @@ interface DiffFile {
   deletions: number;
 }
 
-function parseDiff(raw: string): DiffFile[] {
+export function parseDiff(raw: string): DiffFile[] {
   const files: DiffFile[] = [];
   // Split on "diff --git" boundaries
   const fileSections = raw.split(/^diff --git /m).filter(Boolean);

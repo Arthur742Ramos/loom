@@ -31,7 +31,9 @@ export interface Thread {
 export interface ToolCallEntry {
   id: string;
   toolName: string;
-  status: 'running' | 'done';
+  status: 'running' | 'done' | 'error';
+  result?: string;
+  error?: string;
 }
 
 export interface ChatMessage {
@@ -98,7 +100,13 @@ interface AppState {
   appendToMessage: (threadId: string, messageId: string, content: string) => void;
   appendThinking: (threadId: string, messageId: string, content: string) => void;
   addToolCall: (threadId: string, messageId: string, toolCall: ToolCallEntry) => void;
-  updateToolCallStatus: (threadId: string, messageId: string, toolCallId: string, status: 'done') => void;
+  updateToolCallStatus: (
+    threadId: string,
+    messageId: string,
+    toolCallId: string,
+    status: 'done' | 'error',
+    details?: { result?: string; error?: string },
+  ) => void;
 
   // Permissions
   permissionMode: 'ask' | 'auto' | 'deny';
@@ -278,14 +286,21 @@ const appStore = create<AppState>()(
               ? {
                   ...t,
                   messages: t.messages.map((m) =>
-                    m.id === messageId ? { ...m, toolCalls: [...(m.toolCalls || []), toolCall] } : m,
+                    m.id === messageId
+                      ? {
+                          ...m,
+                          toolCalls: (m.toolCalls || []).some((tc) => tc.id === toolCall.id)
+                            ? (m.toolCalls || [])
+                            : [...(m.toolCalls || []), toolCall],
+                        }
+                      : m,
                   ),
                 }
               : t,
           ),
         })),
 
-      updateToolCallStatus: (threadId, messageId, toolCallId, status) =>
+      updateToolCallStatus: (threadId, messageId, toolCallId, status, details) =>
         set((s) => ({
           threads: s.threads.map((t) =>
             t.id === threadId
@@ -296,7 +311,14 @@ const appStore = create<AppState>()(
                       ? {
                           ...m,
                           toolCalls: (m.toolCalls || []).map((tc) =>
-                            tc.id === toolCallId ? { ...tc, status } : tc,
+                            tc.id === toolCallId
+                              ? {
+                                  ...tc,
+                                  status,
+                                  ...(details?.result !== undefined ? { result: details.result } : {}),
+                                  ...(details?.error !== undefined ? { error: details.error } : {}),
+                                }
+                              : tc,
                           ),
                         }
                       : m,

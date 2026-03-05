@@ -6,6 +6,22 @@ interface GitHubUser {
   avatar_url: string;
 }
 
+function getTestUser(): GitHubUser | null {
+  const raw = process.env.LOOM_TEST_AUTH_USER;
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    if (!parsed?.login || !parsed?.avatar_url) return null;
+    return {
+      login: parsed.login,
+      name: parsed.name ?? null,
+      avatar_url: parsed.avatar_url,
+    };
+  } catch {
+    return null;
+  }
+}
+
 async function getTokenFromGhCli(): Promise<string | null> {
   try {
     const { execSync } = require('child_process');
@@ -47,6 +63,13 @@ async function fetchGitHubUser(token: string): Promise<GitHubUser | null> {
 export function setupAuthHandlers() {
   // Try to get the current user from existing credentials
   ipcMain.handle('auth:get-user', async () => {
+    if (process.env.LOOM_TEST_MODE === '1') {
+      const testUser = getTestUser();
+      return testUser
+        ? { authenticated: true, user: testUser }
+        : { authenticated: false };
+    }
+
     const token = await getToken();
     if (!token) return { authenticated: false };
     const user = await fetchGitHubUser(token);
@@ -56,6 +79,10 @@ export function setupAuthHandlers() {
 
   // Login via gh CLI device flow
   ipcMain.handle('auth:login', async () => {
+    if (process.env.LOOM_TEST_MODE === '1') {
+      return { success: true, message: 'Test mode login' };
+    }
+
     try {
       const { execFileSync } = require('child_process');
       // Check if gh is installed
@@ -95,6 +122,10 @@ export function setupAuthHandlers() {
 
   // Logout
   ipcMain.handle('auth:logout', async () => {
+    if (process.env.LOOM_TEST_MODE === '1') {
+      return { success: true };
+    }
+
     try {
       const { execSync } = require('child_process');
       execSync('gh auth logout -h github.com', { encoding: 'utf-8', input: 'Y\n' });

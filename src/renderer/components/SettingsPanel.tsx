@@ -19,12 +19,18 @@ export const SettingsPanel: React.FC = () => {
   ];
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="settings-panel">
       <div className="bg-card rounded-2xl shadow-xl w-[480px] max-h-[80vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b">
           <h2 className="text-lg font-semibold text-foreground">Settings</h2>
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setShowSettings(false)}>
+          <Button
+            data-testid="settings-close-button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={() => setShowSettings(false)}
+          >
             <X className="w-4 h-4" />
           </Button>
         </div>

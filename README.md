@@ -1,4 +1,3 @@
-// test
 # Loom
 
 An agentic desktop coding app powered by GitHub Copilot — weaving thread-based multi-agent workflows.
@@ -18,6 +17,8 @@ An agentic desktop coding app powered by GitHub Copilot — weaving thread-based
 
 - **Thread-based workflow** — create parallel agent tasks, each isolated
 - **Multi-agent orchestration** — run agents simultaneously in worktrees
+- **Stream-safe responses** — request-scoped streaming prevents cross-thread bleed during concurrent runs
+- **Reasoning + tool traces** — model thinking blocks and tool call results render inline per assistant message
 - **Built-in Git** — diff viewer, staging, commits, worktree management
 - **Integrated terminal** — per-thread terminal powered by xterm.js
 - **GitHub Copilot backend** — uses your Copilot account for AI
@@ -39,6 +40,65 @@ npm start
 npm run build
 npm run package
 ```
+
+## Testing
+
+```bash
+# Run full CI-equivalent suite (build + unit + e2e + visual)
+npm test
+
+# Run full CI-equivalent suite explicitly
+npm run test:ci
+
+# Run only unit tests
+npm run test:unit
+
+# Run Electron end-to-end test flow
+npm run test:e2e
+
+# Run Playwright visual regression tests
+npm run test:visual
+```
+
+### Coverage map
+
+- **Unit tests (`tests/unit`)**
+  - Main process: `src/main/agent.ts`, `src/main/git.ts`
+  - Renderer components: `Sidebar`, `ThreadPanel`, `App`, `WelcomeScreen`
+- **E2E tests (`tests/e2e`)**
+  - App flow: open app → create thread → send prompt → verify completed response
+  - Stream isolation: verifies concurrent thread streaming, thinking/tool traces, and de-duplication behavior
+- **Visual tests (`tests/visual`)**
+  - Screenshot regression checks for sidebar, thread panel, settings panel, and diff viewer
+
+Visual baselines are committed under `tests/__screenshots__/electron-visual/`.
+To refresh snapshots intentionally:
+
+```bash
+xvfb-run -a playwright test --project=electron-visual --update-snapshots
+```
+
+### Test fixtures and utilities
+
+- `tests/fixtures/`: deterministic agent responses, thread state, MCP config, diff fixtures
+- `tests/utils/mockLlm.ts`: scripted LLM stream helpers
+- `tests/utils/mockMcpServer.ts`: lightweight MCP mock server
+- `tests/utils/createGitFixtureRepo.ts`: reproducible git repo fixtures
+- `tests/utils/electronApp.ts`: Playwright Electron launcher with deterministic test mode
+
+Thread stream integrity coverage is in `tests/e2e/thread-stream-isolation.spec.ts` (thread isolation, thinking visibility, tool results, and streaming de-duplication checks).
+
+Deterministic Electron stream tests can be scripted with:
+- `LOOM_TEST_MODE=1`
+- `LOOM_TEST_AGENT_RESPONSE` (fallback response text)
+- `LOOM_TEST_AGENT_SCRIPT` (or `LOOM_TEST_AGENT_EVENTS`) as JSON events (`status`, `thinking`, `tool_start`, `tool_end`, `chunk`, `done`, `error`) with optional `delayMs`
+
+### CI
+
+GitHub Actions workflow `.github/workflows/tests.yml` runs:
+1. `npm ci`
+2. `npx playwright install --with-deps chromium`
+3. `npm run test:ci`
 
 ## Authentication
 

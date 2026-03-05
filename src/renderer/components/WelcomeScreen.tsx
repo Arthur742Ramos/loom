@@ -20,7 +20,7 @@ export const WelcomeScreen: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full">
+    <div className="flex-1 flex flex-col h-full" data-testid="welcome-screen">
       {/* Header matching Codex style */}
       <div className="px-8 pt-8 pb-4">
         <h1 className="text-xl font-semibold text-foreground">New thread</h1>
@@ -34,6 +34,7 @@ export const WelcomeScreen: React.FC = () => {
               Open a project folder to start working with Loom
             </p>
             <Button
+              data-testid="welcome-add-project-button"
               variant="outline"
               className="gap-2 h-10 px-5 text-sm"
               onClick={handleOpenProject}

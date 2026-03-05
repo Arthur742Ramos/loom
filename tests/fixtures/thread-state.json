@@ -1,0 +1,17 @@
+{
+  "title": "Visual regression thread",
+  "messages": [
+    {
+      "id": "msg-user-1",
+      "role": "user",
+      "content": "Create a helper function for formatting dates.",
+      "status": "done"
+    },
+    {
+      "id": "msg-assistant-1",
+      "role": "assistant",
+      "content": "Sure — here is a reusable helper:\n\n```ts\nexport const formatDate = (value: Date) => value.toISOString();\n```",
+      "status": "done"
+    }
+  ]
+}

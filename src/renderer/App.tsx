@@ -30,7 +30,7 @@ const App: React.FC = () => {
 
   return (
     <TooltipProvider>
-      <div className="flex h-screen w-screen bg-background">
+      <div className="flex h-screen w-screen bg-background" data-testid="app-root">
         {/* Drag region for frameless window */}
         <div className="drag-region fixed top-0 left-0 right-0 h-8 z-50" />
 

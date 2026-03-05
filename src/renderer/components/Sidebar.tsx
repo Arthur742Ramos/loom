@@ -133,7 +133,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0">
+    <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0" data-testid="sidebar">
       {/* Brand */}
       <div className="px-5 mb-6 flex items-center gap-2.5 shrink-0">
         <LoomLogo className="w-7 h-7 p-1" />
@@ -145,6 +145,7 @@ export const Sidebar: React.FC = () => {
       {/* Nav items */}
       <nav className="px-3 space-y-0.5 mb-6">
         <button
+          data-testid="new-thread-button"
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors"
           onClick={() => handleNewThread()}
         >
@@ -422,6 +423,7 @@ export const Sidebar: React.FC = () => {
 
         {/* Add project */}
         <button
+          data-testid="add-project-button"
           className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors"
           onClick={handleOpenProject}
         >
@@ -434,6 +436,7 @@ export const Sidebar: React.FC = () => {
       {/* Settings */}
       <div className="px-3 mb-1 shrink-0">
         <button
+          data-testid="settings-button"
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           onClick={() => setShowSettings(true)}
         >
@@ -454,6 +457,7 @@ export const Sidebar: React.FC = () => {
               {githubUser.name || githubUser.login}
             </span>
             <button
+              data-testid="logout-button"
               className="text-muted-foreground hover:text-foreground transition-colors p-1"
               onClick={handleLogout}
               title="Sign out"
@@ -464,6 +468,7 @@ export const Sidebar: React.FC = () => {
         ) : (
           <div className="space-y-1">
             <button
+              data-testid="login-button"
               className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors"
               onClick={handleLogin}
               disabled={loginLoading}
@@ -472,6 +477,7 @@ export const Sidebar: React.FC = () => {
               {loginLoading ? 'Opening login...' : 'Sign in with GitHub'}
             </button>
             <button
+              data-testid="check-auth-button"
               className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors"
               onClick={checkAuthStatus}
               disabled={loginLoading}

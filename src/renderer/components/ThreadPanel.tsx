@@ -152,10 +152,11 @@ export const ThreadPanel: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const streamCleanupByThreadRef = useRef<Record<string, () => void>>({});
+  const activeRequestIdByThreadRef = useRef<Record<string, string>>({});
 
   const thread = threads.find((t) => t.id === activeThreadId);
-  if (!thread) return null;
-  const threadProjectPath = thread.projectPath || projectPath || '';
+  const threadProjectPath = thread?.projectPath || projectPath || '';
   const agentStatus = (activeThreadId && agentStatusMap[activeThreadId]) || '';
 
   const scrollToBottom = () => {
@@ -164,7 +165,16 @@ export const ThreadPanel: React.FC = () => {
   };
 
   // Scroll on new messages and during streaming content growth.
-  useEffect(() => { scrollToBottom(); }, [thread.messages, agentStatus]);
+  useEffect(() => {
+    if (!thread) return;
+    scrollToBottom();
+  }, [thread?.messages, agentStatus]);
+
+  useEffect(() => () => {
+    Object.values(streamCleanupByThreadRef.current).forEach((cleanup) => cleanup());
+    streamCleanupByThreadRef.current = {};
+    activeRequestIdByThreadRef.current = {};
+  }, []);
 
   // Listen for permission requests from the agent backend.
   useEffect(() => {
@@ -207,18 +217,24 @@ export const ThreadPanel: React.FC = () => {
   };
 
   const handleSend = () => {
-    if (!input.trim() || !activeThreadId) return;
+    if (!thread || !activeThreadId) return;
+    const trimmedInput = input.trim();
+    if (!trimmedInput) return;
+
+    const threadId = activeThreadId;
+    const requestId = crypto.randomUUID();
+    streamCleanupByThreadRef.current[threadId]?.();
 
     const userMsg: ChatMessage = {
-      id: `msg-${Date.now()}-user`,
+      id: `msg-${crypto.randomUUID()}`,
       role: 'user',
-      content: input.trim(),
+      content: trimmedInput,
       timestamp: Date.now(),
       status: 'done',
     };
-    addMessage(activeThreadId, userMsg);
+    addMessage(threadId, userMsg);
 
-    const assistantMsgId = `msg-${Date.now()}-assistant`;
+    const assistantMsgId = `msg-${crypto.randomUUID()}`;
     const assistantMsg: ChatMessage = {
       id: assistantMsgId,
       role: 'assistant',
@@ -226,96 +242,128 @@ export const ThreadPanel: React.FC = () => {
       timestamp: Date.now(),
       status: 'streaming',
     };
-    addMessage(activeThreadId, assistantMsg);
-    updateThread(activeThreadId, { status: 'running' });
+    addMessage(threadId, assistantMsg);
+    updateThread(threadId, { status: 'running' });
+    setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
+    setInput('');
 
     if (typeof window !== 'undefined' && (window as any).require) {
       const { ipcRenderer } = (window as any).require('electron');
+      activeRequestIdByThreadRef.current[threadId] = requestId;
+      let chunkBuffer = '';
+      let rafId: number | null = null;
+      let cleanedUp = false;
+      let handler: (_: any, streamThreadId: string, data: any) => void;
+
+      const flushChunks = () => {
+        rafId = null;
+        if (chunkBuffer) {
+          appendToMessage(threadId, assistantMsgId, chunkBuffer);
+          chunkBuffer = '';
+        }
+      };
+
+      const cleanup = (flushPending = false) => {
+        if (cleanedUp) return;
+        cleanedUp = true;
+        if (rafId !== null) {
+          cancelAnimationFrame(rafId);
+          rafId = null;
+        }
+        if (flushPending && chunkBuffer) {
+          appendToMessage(threadId, assistantMsgId, chunkBuffer);
+          chunkBuffer = '';
+        }
+        ipcRenderer.removeListener('agent:stream', handler);
+        if (streamCleanupByThreadRef.current[threadId] === cleanup) {
+          delete streamCleanupByThreadRef.current[threadId];
+        }
+        if (activeRequestIdByThreadRef.current[threadId] === requestId) {
+          delete activeRequestIdByThreadRef.current[threadId];
+        }
+      };
+
+      handler = (_: any, streamThreadId: string, data: any) => {
+        if (streamThreadId !== threadId) return;
+        if (data?.requestId && data.requestId !== requestId) return;
+        if (activeRequestIdByThreadRef.current[threadId] !== requestId) return;
+
+        if (data.type === 'chunk') {
+          if (!data.content) return;
+          chunkBuffer += data.content;
+          if (rafId === null) {
+            rafId = requestAnimationFrame(flushChunks);
+          }
+        } else if (data.type === 'thinking') {
+          if (data.content) {
+            appendThinking(threadId, assistantMsgId, data.content);
+          }
+        } else if (data.type === 'tool_start') {
+          const toolCallId = data.toolCallId || `tool-${crypto.randomUUID()}`;
+          addToolCall(threadId, assistantMsgId, {
+            id: toolCallId,
+            toolName: data.toolName || 'tool',
+            status: 'running',
+          });
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: `Running ${data.toolName || 'tool'}` }));
+        } else if (data.type === 'tool_end') {
+          if (data.toolCallId) {
+            updateToolCallStatus(
+              threadId,
+              assistantMsgId,
+              data.toolCallId,
+              data.success === false || data.error ? 'error' : 'done',
+              {
+                result: typeof data.result === 'string' ? data.result : undefined,
+                error: typeof data.error === 'string' ? data.error : undefined,
+              },
+            );
+          }
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
+        } else if (data.type === 'status') {
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: data.status || '' }));
+        } else if (data.type === 'done') {
+          cleanup(true);
+          // Always prefer the final authoritative content from the SDK.
+          // Streamed deltas may include intermediate tool output that
+          // differs from the clean final assistant message.
+          if (typeof data.content === 'string' && data.content.length > 0) {
+            updateMessage(threadId, assistantMsgId, { content: data.content });
+          }
+          updateMessage(threadId, assistantMsgId, { status: 'done' });
+          updateThread(threadId, { status: 'completed' });
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
+        } else if (data.type === 'error') {
+          cleanup(true);
+          updateMessage(threadId, assistantMsgId, { status: 'error', content: `Error: ${data.content}` });
+          updateThread(threadId, { status: 'error' });
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
+        }
+      };
+      streamCleanupByThreadRef.current[threadId] = cleanup;
+      ipcRenderer.on('agent:stream', handler);
       ipcRenderer.send('agent:send', {
-        threadId: activeThreadId,
+        threadId,
+        requestId,
         cliSessionId: thread.cliSessionId,
-        message: input.trim(),
+        message: trimmedInput,
         model: selectedModel,
         reasoningEffort,
         permissionMode,
         mcpServers,
         context: { cwd: threadProjectPath },
       });
-
-      let gotChunks = false;
-      let chunkBuffer = '';
-      let rafId: number | null = null;
-
-      const flushChunks = () => {
-        rafId = null;
-        if (chunkBuffer) {
-          appendToMessage(activeThreadId!, assistantMsgId, chunkBuffer);
-          chunkBuffer = '';
-        }
-      };
-
-      const handler = (_: any, threadId: string, data: any) => {
-        if (threadId !== activeThreadId) return;
-        if (data.type === 'chunk') {
-          gotChunks = true;
-          chunkBuffer += data.content;
-          if (rafId === null) {
-            rafId = requestAnimationFrame(flushChunks);
-          }
-        } else if (data.type === 'thinking') {
-          appendThinking(threadId, assistantMsgId, data.content);
-        } else if (data.type === 'tool_start') {
-          addToolCall(threadId, assistantMsgId, {
-            id: data.toolCallId,
-            toolName: data.toolName,
-            status: 'running',
-          });
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: `Running ${data.toolName}` }));
-        } else if (data.type === 'tool_end') {
-          if (data.toolCallId) {
-            updateToolCallStatus(threadId, assistantMsgId, data.toolCallId, 'done');
-          }
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
-        } else if (data.type === 'status') {
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: data.status || '' }));
-        } else if (data.type === 'done') {
-          if (rafId !== null) cancelAnimationFrame(rafId);
-          if (chunkBuffer) {
-            appendToMessage(threadId, assistantMsgId, chunkBuffer);
-            chunkBuffer = '';
-          }
-          // Always prefer the final authoritative content from the SDK.
-          // Streamed deltas may include intermediate tool output that
-          // differs from the clean final assistant message.
-          if (data.content) {
-            updateMessage(threadId, assistantMsgId, { content: data.content });
-          }
-          updateMessage(threadId, assistantMsgId, { status: 'done' });
-          updateThread(threadId, { status: 'completed' });
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
-          ipcRenderer.removeListener('agent:stream', handler);
-        } else if (data.type === 'error') {
-          if (rafId !== null) cancelAnimationFrame(rafId);
-          updateMessage(threadId, assistantMsgId, { status: 'error', content: `Error: ${data.content}` });
-          updateThread(threadId, { status: 'error' });
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
-          ipcRenderer.removeListener('agent:stream', handler);
-        }
-      };
-      ipcRenderer.on('agent:stream', handler);
     } else {
       setTimeout(() => {
-        appendToMessage(activeThreadId!, assistantMsgId,
+        appendToMessage(threadId, assistantMsgId,
           "The Copilot CLI backend requires the desktop app (Electron).\n\n" +
           "Install the Copilot CLI: `npm install -g @githubnext/github-copilot-cli`\n" +
           "Then run this app as a desktop application."
         );
-        updateMessage(activeThreadId!, assistantMsgId, { status: 'done' });
-        updateThread(activeThreadId!, { status: 'completed' });
+        updateMessage(threadId, assistantMsgId, { status: 'done' });
+        updateThread(threadId, { status: 'completed' });
       }, 500);
     }
-
-    setInput('');
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -328,8 +376,10 @@ export const ThreadPanel: React.FC = () => {
     return 'secondary' as const;
   };
 
+  if (!thread) return null;
+
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="thread-panel">
       {/* Header — Codex style */}
       <div className="flex items-center justify-between px-8 pt-7 pb-4 shrink-0">
         {editingTitle ? (
@@ -356,6 +406,7 @@ export const ThreadPanel: React.FC = () => {
         )}
         <div className="flex gap-0.5 bg-secondary rounded-lg p-1">
           <button
+            data-testid="tab-chat"
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
               activeTab === 'chat' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             onClick={() => setActiveTab('chat')}
@@ -363,6 +414,7 @@ export const ThreadPanel: React.FC = () => {
             <MessageSquare className="w-3.5 h-3.5" /> Chat
           </button>
           <button
+            data-testid="tab-diff"
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
               activeTab === 'diff' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             onClick={() => setActiveTab('diff')}
@@ -370,6 +422,7 @@ export const ThreadPanel: React.FC = () => {
             <GitCompare className="w-3.5 h-3.5" /> Diff
           </button>
           <button
+            data-testid="tab-terminal"
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
               activeTab === 'terminal' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             onClick={() => setActiveTab('terminal')}
@@ -432,23 +485,51 @@ export const ThreadPanel: React.FC = () => {
                     {msg.status === 'error' && (
                       <span className="text-destructive text-[11px] mt-1 block">Failed</span>
                     )}
-                    {/* Activity indicator: show what the agent is doing during tool work */}
-                    {msg.status === 'streaming' && msg === thread.messages[thread.messages.length - 1] && (agentStatus || thinkingContent) && (
+                    {(msg.role === 'assistant' && (msg.toolCalls?.length || msg.thinking
+                      || (msg.status === 'streaming' && msg === thread.messages[thread.messages.length - 1] && agentStatus))) && (
                       <div className="mt-2 space-y-1.5">
-                        {agentStatus && (
+                        {msg.status === 'streaming' && msg === thread.messages[thread.messages.length - 1] && agentStatus && (
                           <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
                             <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                             <span className="truncate">{agentStatus}</span>
                           </div>
                         )}
-                        {thinkingContent && (
-                          <details className="group" open>
+                        {msg.toolCalls && msg.toolCalls.length > 0 && (
+                          <div className="space-y-1">
+                            {msg.toolCalls.map((toolCall) => (
+                              <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
+                                <div className="flex items-center gap-2">
+                                  {toolCall.status === 'running' ? (
+                                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                                  ) : toolCall.status === 'error' ? (
+                                    <span className="text-destructive">✕</span>
+                                  ) : (
+                                    <Check className="w-3 h-3 shrink-0 text-emerald-600" />
+                                  )}
+                                  <span className="truncate">{toolCall.toolName}</span>
+                                </div>
+                                {toolCall.result && (
+                                  <div className="pl-5 mt-0.5 text-muted-foreground/70 whitespace-pre-wrap break-words">
+                                    {toolCall.result}
+                                  </div>
+                                )}
+                                {toolCall.error && (
+                                  <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
+                                    {toolCall.error}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {msg.thinking && (
+                          <details className="group" open={msg.status === 'streaming'}>
                             <summary className="text-[11px] text-muted-foreground/70 cursor-pointer select-none hover:text-muted-foreground flex items-center gap-1">
                               <ChevronDown className="w-3 h-3 transition-transform group-open:rotate-0 -rotate-90" />
                               Thinking
                             </summary>
                             <div className="mt-1 pl-4 text-[11px] text-muted-foreground/60 whitespace-pre-wrap max-h-[120px] overflow-y-auto leading-relaxed">
-                              {thinkingContent}
+                              {msg.thinking}
                             </div>
                           </details>
                         )}
@@ -532,6 +613,7 @@ export const ThreadPanel: React.FC = () => {
           <div className="px-8 pb-6 pt-3">
             <div className="flex items-end bg-secondary/60 border rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
               <textarea
+                data-testid="thread-input"
                 ref={inputRef}
                 className="flex-1 px-3.5 py-2.5 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
                 placeholder="Ask Copilot to work on something..."
@@ -541,6 +623,7 @@ export const ThreadPanel: React.FC = () => {
                 rows={1}
               />
               <Button
+                data-testid="thread-send"
                 size="icon"
                 className="h-9 w-9 rounded-[10px] shrink-0"
                 onClick={handleSend}
@@ -648,7 +731,7 @@ const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
     s === 'added' ? '🟢' : s === 'deleted' ? '🔴' : s === 'renamed' ? '🔵' : '🟡';
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="diff-view">
       <div className="flex items-center gap-2 px-4 py-2 border-b bg-card shrink-0">
         <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={loadDiff}>
           <RefreshCw className="w-3 h-3" /> Refresh
