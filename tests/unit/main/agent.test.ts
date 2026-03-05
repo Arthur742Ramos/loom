@@ -137,8 +137,8 @@ describe('src/main/agent.ts', () => {
           browser: {
             command: 'npx',
           },
-          cloudbuild: {
-            url: 'https://cloudbuild-mcp.example.com/sse',
+          remote: {
+            url: 'https://example-mcp.example.com/sse',
             type: 'sse',
           },
           remotePlain: {
@@ -165,7 +165,7 @@ describe('src/main/agent.ts', () => {
 
     const { loadMcpFromProject } = await import('../../../src/main/agent');
     const config = loadMcpFromProject(tmpRoot);
-    expect(Object.keys(config).sort()).toEqual(['browser', 'cloudbuild', 'fs', 'remotePlain']);
+    expect(Object.keys(config).sort()).toEqual(['browser', 'fs', 'remote', 'remotePlain']);
     expect(config.fs).toEqual({
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-filesystem'],
@@ -177,8 +177,8 @@ describe('src/main/agent.ts', () => {
       args: [],
       tools: ['*'],
     });
-    expect(config.cloudbuild).toEqual({
-      url: 'https://cloudbuild-mcp.example.com/sse',
+    expect(config.remote).toEqual({
+      url: 'https://example-mcp.example.com/sse',
       type: 'sse',
       tools: ['*'],
     });
