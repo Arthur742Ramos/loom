@@ -1,31 +1,61 @@
 # Loom
 
-An agentic desktop coding app powered by GitHub Copilot — weaving thread-based multi-agent workflows.
+![Tests](https://github.com/Arthur742Ramos/loom/actions/workflows/tests.yml/badge.svg)
+![Release](https://github.com/Arthur742Ramos/loom/actions/workflows/release.yml/badge.svg)
+![Version](https://img.shields.io/github/v/tag/Arthur742Ramos/loom?label=version)
+![Platform](https://img.shields.io/badge/platform-Electron-47848F)
 
-## Architecture
+> An agentic desktop coding app powered by GitHub Copilot — weaving thread-based multi-agent workflows.
 
+## 🚀 Why Loom
+
+Loom gives you **parallel coding threads**, each with isolated state and worktree context, so multiple agents can run side-by-side without stepping on each other.
+
+- 🧵 **Thread-based workflow** for independent tasks
+- 🤖 **Multi-agent orchestration** across worktrees
+- 🔒 **Request-scoped streaming isolation** to prevent cross-thread bleed
+- 🧠 **Reasoning + tool trace rendering** directly in chat messages
+- 🧮 **Per-thread token counter** with prompt/completion/cache breakdown
+- 🌑 **Codex-inspired dark UI** with integrated terminal and Git views
+
+## 🏗 Architecture
+
+```mermaid
+flowchart LR
+  UI[Renderer\nReact + TypeScript + Monaco]
+  PRELOAD[Preload Bridge\ncontextIsolation-safe API]
+  MAIN[Electron Main Process\nIPC handlers + orchestration]
+  GIT[Git Layer\nsimple-git + worktrees]
+  TERM[Terminal Layer\nnode-pty + xterm.js]
+  AGENT[Agent Backend\nGitHub Copilot API]
+
+  UI <-- IPC --> PRELOAD
+  PRELOAD <-- allowlisted channels --> MAIN
+  MAIN --> GIT
+  MAIN --> TERM
+  MAIN --> AGENT
 ```
-[Electron UI (React + TypeScript + Monaco)]
-  ⇅ IPC
-[Electron Main Process (Node.js)]
-  ├── Git operations (simple-git, worktrees)
-  ├── Terminal (node-pty + xterm.js)
-  └── Agent backend (GitHub Copilot API)
-```
 
-## Features
+## 📸 Screenshots
 
-- **Thread-based workflow** — create parallel agent tasks, each isolated
-- **Multi-agent orchestration** — run agents simultaneously in worktrees
-- **Stream-safe responses** — request-scoped streaming prevents cross-thread bleed during concurrent runs
-- **Reasoning + tool traces** — model thinking blocks and tool call results render inline per assistant message
-- **Per-thread token counter** — compact cumulative token badge with prompt/completion/cache breakdown tooltip
-- **Built-in Git** — diff viewer, staging, commits, worktree management
-- **Integrated terminal** — per-thread terminal powered by xterm.js
-- **GitHub Copilot backend** — uses your Copilot account for AI
-- **Dark theme** — Codex-inspired minimal dark UI
+| Sidebar | Thread Panel |
+| --- | --- |
+| ![Sidebar](screenshots/sidebar.png) | ![Thread Panel](screenshots/thread-panel.png) |
 
-## Installation
+| Settings | Diff Viewer |
+| --- | --- |
+| ![Settings](screenshots/settings-panel.png) | ![Diff Viewer](screenshots/diff-viewer.png) |
+
+## ✨ Feature Highlights
+
+- 🧵 **Parallel threads** with per-thread chat, terminal, and status
+- 🛠️ **Tool-call timeline** with quiet-by-default output details
+- 🔄 **Stream-safe responses** with request-level scoping
+- 🌲 **Built-in Git workflows** (status, diff, stage, commit, worktrees)
+- 🔐 **Permission & input flows** surfaced directly in-thread
+- 🧪 **Deterministic test mode** for stable e2e/visual coverage
+
+## 📦 Installation
 
 ### Download (easiest)
 
@@ -48,111 +78,74 @@ npm install
 npm run package    # builds + creates installer in release/
 ```
 
-## Getting Started
+## ▶️ Getting Started
 
 ```bash
 # Install dependencies
 npm install
 
-# Run in development mode
+# Run renderer in development mode
 npm run dev
 
 # In another terminal, start Electron
 npm start
 
-# Build for production
+# Production build
 npm run build
 npm run package
 ```
 
-## Testing
+## 🧪 Testing
 
 ```bash
-# Run full CI-equivalent suite (build + unit + e2e + visual)
+# Full CI-equivalent suite (build + unit + e2e + visual)
 npm test
 
-# Run full CI-equivalent suite explicitly
+# Explicit CI suite
 npm run test:ci
 
-# Run only unit tests
+# Unit tests
 npm run test:unit
 
-# Run Electron end-to-end test flow
+# Electron e2e
 npm run test:e2e
 
-# Run Playwright visual regression tests
+# Playwright visual regression
 npm run test:visual
 ```
 
-### Coverage map
-
-- **Unit tests (`tests/unit`)**
-  - Main process: `src/main/agent.ts`, `src/main/git.ts`
-  - Renderer components: `Sidebar`, `ThreadPanel`, `App`, `WelcomeScreen`
-- **E2E tests (`tests/e2e`)**
-  - App flow: open app → create thread → send prompt → verify completed response
-  - Stream isolation: verifies concurrent thread streaming, thinking/tool traces, and de-duplication behavior
-- **Visual tests (`tests/visual`)**
-  - Screenshot regression checks for sidebar, thread panel, settings panel, and diff viewer
-
-Visual baselines are committed under `tests/__screenshots__/electron-visual/`.
-Recent token-counter captures are stored in `screenshots/token-counter-thread-panel.png` and `screenshots/token-counter-full.png`.
-To refresh snapshots intentionally:
+Visual baselines live in `tests/__screenshots__/electron-visual/`.
+Refresh intentionally with:
 
 ```bash
-xvfb-run -a playwright test --project=electron-visual --update-snapshots
+xvfb-run -a playwright test tests/visual/ui-regression.spec.ts --project=electron-visual --update-snapshots
 ```
 
-### Test fixtures and utilities
-
-- `tests/fixtures/`: deterministic agent responses, thread state, MCP config, diff fixtures
-- `tests/utils/mockLlm.ts`: scripted LLM stream helpers
-- `tests/utils/mockMcpServer.ts`: lightweight MCP mock server
-- `tests/utils/createGitFixtureRepo.ts`: reproducible git repo fixtures
-- `tests/utils/electronApp.ts`: Playwright Electron launcher with deterministic test mode
-
-Thread stream integrity coverage is in `tests/e2e/thread-stream-isolation.spec.ts` (thread isolation, thinking visibility, tool results, and streaming de-duplication checks).
-
-Deterministic Electron stream tests can be scripted with:
-- `LOOM_TEST_MODE=1`
-- `LOOM_TEST_AGENT_RESPONSE` (fallback response text)
-- `LOOM_TEST_AGENT_SCRIPT` (or `LOOM_TEST_AGENT_EVENTS`) as JSON events (`status`, `thinking`, `tool_start`, `tool_end`, `chunk`, `usage`, `done`, `error`) with optional `delayMs`
-
-### CI
-
-GitHub Actions workflow `.github/workflows/tests.yml` runs:
-1. `npm ci`
-2. `npx playwright install --with-deps chromium`
-3. `npm run test:ci`
-
-## Authentication
+## 🔐 Authentication
 
 Set your GitHub token via one of:
 1. Environment variable: `GITHUB_TOKEN`
 2. GitHub CLI: `gh auth login`
 
-## Project Structure
+## 🗂 Project Structure
 
-```
+```text
 src/
 ├── main/           # Electron main process
-│   ├── main.ts     # Window management, IPC setup
-│   ├── agent.ts    # GitHub Copilot API integration
-│   ├── git.ts      # Git operations (status, diff, worktrees)
-│   └── terminal.ts # node-pty terminal management
+│   ├── main.ts     # Window lifecycle + IPC setup
+│   ├── agent.ts    # Copilot streaming + orchestration
+│   ├── git.ts      # Git operations
+│   ├── terminal.ts # PTY terminal handling
+│   └── preload.ts  # Safe renderer bridge
 ├── renderer/       # React frontend
-│   ├── App.tsx     # Root layout
-│   ├── components/ # UI components
-│   │   ├── Sidebar.tsx      # Thread list & project picker
-│   │   ├── ThreadPanel.tsx  # Chat, diff, terminal tabs
-│   │   ├── TitleBar.tsx     # Custom window title bar
-│   │   └── WelcomeScreen.tsx
-│   ├── store/      # Zustand state management
-│   └── styles/     # CSS (Codex-inspired dark theme)
-└── shared/         # Shared types & IPC constants
+│   ├── App.tsx
+│   ├── components/
+│   ├── store/      # Zustand state
+│   └── styles/
+└── shared/         # Shared types/contracts
 ```
 
-## Tech Stack
+## 🧰 Tech Stack
 
 | Component | Technology |
 |-----------|-----------|
