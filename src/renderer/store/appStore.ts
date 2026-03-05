@@ -163,6 +163,36 @@ const emptyThreadTokenUsage = (): ThreadTokenUsage => ({
   totalTokens: 0,
 });
 
+const updateThreadList = (
+  threads: Thread[],
+  threadId: string,
+  updater: (thread: Thread) => Thread,
+): Thread[] => {
+  let changed = false;
+  const nextThreads = threads.map((thread) => {
+    if (thread.id !== threadId) return thread;
+    const updatedThread = updater(thread);
+    if (updatedThread !== thread) changed = true;
+    return updatedThread;
+  });
+  return changed ? nextThreads : threads;
+};
+
+const updateMessageList = (
+  thread: Thread,
+  messageId: string,
+  updater: (message: ChatMessage) => ChatMessage,
+): Thread => {
+  let changed = false;
+  const nextMessages = thread.messages.map((message) => {
+    if (message.id !== messageId) return message;
+    const updatedMessage = updater(message);
+    if (updatedMessage !== message) changed = true;
+    return updatedMessage;
+  });
+  return changed ? { ...thread, messages: nextMessages } : thread;
+};
+
 const appStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -261,16 +291,15 @@ const appStore = create<AppState>()(
 
       updateThread: (id, updates) =>
         set((s) => ({
-          threads: s.threads.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+          threads: updateThreadList(s.threads, id, (thread) => ({ ...thread, ...updates })),
         })),
 
       addThreadTokenUsage: (threadId, usage) =>
         set((s) => ({
-          threads: s.threads.map((t) => {
-            if (t.id !== threadId) return t;
-            const previous = t.tokenUsage ?? emptyThreadTokenUsage();
+          threads: updateThreadList(s.threads, threadId, (thread) => {
+            const previous = thread.tokenUsage ?? emptyThreadTokenUsage();
             return {
-              ...t,
+              ...thread,
               tokenUsage: {
                 inputTokens: previous.inputTokens + usage.inputTokens,
                 outputTokens: previous.outputTokens + usage.outputTokens,
@@ -285,99 +314,75 @@ const appStore = create<AppState>()(
       // Messages
       addMessage: (threadId, message) =>
         set((s) => ({
-          threads: s.threads.map((t) =>
-            t.id === threadId ? { ...t, messages: [...t.messages, message] } : t,
-          ),
+          threads: updateThreadList(s.threads, threadId, (thread) => ({
+            ...thread,
+            messages: [...thread.messages, message],
+          })),
         })),
 
       updateMessage: (threadId, messageId, updates) =>
         set((s) => ({
-          threads: s.threads.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) =>
-                    m.id === messageId ? { ...m, ...updates } : m,
-                  ),
-                }
-              : t,
+          threads: updateThreadList(s.threads, threadId, (thread) =>
+            updateMessageList(thread, messageId, (message) => ({ ...message, ...updates })),
           ),
         })),
 
       appendToMessage: (threadId, messageId, content) =>
         set((s) => ({
-          threads: s.threads.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) =>
-                    m.id === messageId ? { ...m, content: m.content + content } : m,
-                  ),
-                }
-              : t,
+          threads: updateThreadList(s.threads, threadId, (thread) =>
+            updateMessageList(thread, messageId, (message) => ({
+              ...message,
+              content: message.content + content,
+            })),
           ),
         })),
 
       appendThinking: (threadId, messageId, content) =>
         set((s) => ({
-          threads: s.threads.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) =>
-                    m.id === messageId ? { ...m, thinking: (m.thinking || '') + content } : m,
-                  ),
-                }
-              : t,
+          threads: updateThreadList(s.threads, threadId, (thread) =>
+            updateMessageList(thread, messageId, (message) => ({
+              ...message,
+              thinking: (message.thinking || '') + content,
+            })),
           ),
         })),
 
       addToolCall: (threadId, messageId, toolCall) =>
         set((s) => ({
-          threads: s.threads.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) =>
-                    m.id === messageId
-                      ? {
-                          ...m,
-                          toolCalls: (m.toolCalls || []).some((tc) => tc.id === toolCall.id)
-                            ? (m.toolCalls || [])
-                            : [...(m.toolCalls || []), toolCall],
-                        }
-                      : m,
-                  ),
-                }
-              : t,
+          threads: updateThreadList(s.threads, threadId, (thread) =>
+            updateMessageList(thread, messageId, (message) => {
+              const existingToolCalls = message.toolCalls || [];
+              if (existingToolCalls.some((tc) => tc.id === toolCall.id)) return message;
+              return {
+                ...message,
+                toolCalls: [...existingToolCalls, toolCall],
+              };
+            }),
           ),
         })),
 
       updateToolCallStatus: (threadId, messageId, toolCallId, status, details) =>
         set((s) => ({
-          threads: s.threads.map((t) =>
-            t.id === threadId
-              ? {
-                  ...t,
-                  messages: t.messages.map((m) =>
-                    m.id === messageId
-                      ? {
-                          ...m,
-                          toolCalls: (m.toolCalls || []).map((tc) =>
-                            tc.id === toolCallId
-                              ? {
-                                  ...tc,
-                                  status,
-                                  ...(details?.result !== undefined ? { result: details.result } : {}),
-                                  ...(details?.error !== undefined ? { error: details.error } : {}),
-                                }
-                              : tc,
-                          ),
-                        }
-                      : m,
-                  ),
-                }
-              : t,
+          threads: updateThreadList(s.threads, threadId, (thread) =>
+            updateMessageList(thread, messageId, (message) => {
+              const existingToolCalls = message.toolCalls || [];
+              let changed = false;
+              const nextToolCalls = existingToolCalls.map((toolCall) => {
+                if (toolCall.id !== toolCallId) return toolCall;
+                changed = true;
+                return {
+                  ...toolCall,
+                  status,
+                  ...(details?.result !== undefined ? { result: details.result } : {}),
+                  ...(details?.error !== undefined ? { error: details.error } : {}),
+                };
+              });
+              if (!changed) return message;
+              return {
+                ...message,
+                toolCalls: nextToolCalls,
+              };
+            }),
           ),
         })),
 

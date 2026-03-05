@@ -64,6 +64,7 @@ export const SettingsPanel: React.FC = () => {
           <Button
             ref={closeButtonRef}
             data-testid="settings-close-button"
+            aria-label="Close settings"
             variant="ghost"
             size="icon"
             className="h-8 w-8"
@@ -81,6 +82,8 @@ export const SettingsPanel: React.FC = () => {
               <button
                 key={id}
                 onClick={() => setTheme(id)}
+                aria-label={`Set ${label} theme`}
+                aria-pressed={theme === id}
                 className={cn(
                   'flex flex-col items-center gap-2 p-3 rounded-xl border-2 transition-all',
                   theme === id
@@ -104,6 +107,7 @@ export const SettingsPanel: React.FC = () => {
             <input
               data-testid="settings-tool-output-toggle"
               type="checkbox"
+              aria-label="Show tool output details"
               className="mt-0.5 h-4 w-4 rounded border-border text-primary focus:ring-primary"
               checked={showToolOutputDetails}
               onChange={(e) => setShowToolOutputDetails(e.target.checked)}
@@ -119,7 +123,7 @@ export const SettingsPanel: React.FC = () => {
 
         {/* Version & Updates */}
         <div className="px-6 py-4 border-t">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between" aria-live="polite">
             <p className="text-[11px] text-muted-foreground">Loom v0.1.0 · Powered by GitHub Copilot</p>
             {updateStatus?.status === 'downloaded' ? (
               <Button
@@ -134,6 +138,7 @@ export const SettingsPanel: React.FC = () => {
               <span className="text-[11px] text-primary">Downloading v{updateStatus.version}…</span>
             ) : (
               <button
+                aria-label="Check for updates"
                 className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 onClick={async () => {
                   const api = window.electronAPI;

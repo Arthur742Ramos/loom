@@ -75,6 +75,11 @@
   }
 }
 
+:where(button, [role="button"], [role="tab"], input, textarea):focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+}
+
 /* ── Typing indicator animation ── */
 @keyframes typing-bounce {
   0%, 60%, 100% { opacity: 0.3; transform: scale(0.8); }

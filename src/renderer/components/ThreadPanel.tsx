@@ -1,5 +1,8 @@
-import React, { useState, useRef, useEffect, useMemo } from 'react';
+import React, {
+  lazy, Suspense, useState, useRef, useEffect, useMemo,
+} from 'react';
 import { useAppStore, ChatMessage } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import { Button } from './ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
 import {
@@ -9,8 +12,6 @@ import { cn } from '../lib/utils';
 import { MarkdownMessage } from './MarkdownMessage';
 import { LoomIcon } from './LoomIcon';
 import { ModelPicker } from './ModelPicker';
-import { DiffView } from './DiffView';
-import { TerminalView } from './TerminalView';
 import { TokenCounter } from './TokenCounter';
 
 const THINKING_SUMMARY_LIMIT = 60;
@@ -32,6 +33,7 @@ type PendingUserInputRequest = {
 type AgentStreamPayload = {
   type: string;
   requestId?: string;
+  events?: unknown;
   content?: unknown;
   status?: unknown;
   toolCallId?: unknown;
@@ -85,32 +87,76 @@ const previewThinking = (thinking: string, showFull: boolean): string => {
   return `${thinking.slice(0, THINKING_PREVIEW_LIMIT)}…`;
 };
 
+const DiffView = lazy(async () => {
+  const module = await import('./DiffView');
+  return { default: module.DiffView };
+});
+
+const TerminalView = lazy(async () => {
+  const module = await import('./TerminalView');
+  return { default: module.TerminalView };
+});
+
+const THREAD_TABS = ['chat', 'diff', 'terminal'] as const;
+
 export const ThreadPanel: React.FC = () => {
-  const activeThreadId = useAppStore((s) => s.activeThreadId);
-  const threads = useAppStore((s) => s.threads);
-  const activeTab = useAppStore((s) => s.activeTab);
-  const setActiveTab = useAppStore((s) => s.setActiveTab);
-  const addMessage = useAppStore((s) => s.addMessage);
-  const appendToMessage = useAppStore((s) => s.appendToMessage);
-  const updateMessage = useAppStore((s) => s.updateMessage);
-  const updateThread = useAppStore((s) => s.updateThread);
-  const appendThinking = useAppStore((s) => s.appendThinking);
-  const addToolCall = useAppStore((s) => s.addToolCall);
-  const updateToolCallStatus = useAppStore((s) => s.updateToolCallStatus);
-  const addThreadTokenUsage = useAppStore((s) => s.addThreadTokenUsage);
-  const projectPath = useAppStore((s) => s.projectPath);
-  const selectedModel = useAppStore((s) => s.selectedModel);
-  const setSelectedModel = useAppStore((s) => s.setSelectedModel);
-  const githubUser = useAppStore((s) => s.githubUser);
-  const reasoningEffort = useAppStore((s) => s.reasoningEffort);
-  const setReasoningEffort = useAppStore((s) => s.setReasoningEffort);
-  const permissionMode = useAppStore((s) => s.permissionMode);
-  const setPermissionMode = useAppStore((s) => s.setPermissionMode);
-  const mcpServers = useAppStore((s) => s.mcpServers);
-  const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
-  const availableModels = useAppStore((s) => s.availableModels);
-  const pendingInputInsertion = useAppStore((s) => s.pendingInputInsertion);
-  const consumeInputInsertion = useAppStore((s) => s.consumeInputInsertion);
+  const {
+    activeThreadId,
+    thread,
+    activeTab,
+    setActiveTab,
+    addMessage,
+    appendToMessage,
+    updateMessage,
+    updateThread,
+    appendThinking,
+    addToolCall,
+    updateToolCallStatus,
+    addThreadTokenUsage,
+    projectPath,
+    selectedModel,
+    setSelectedModel,
+    githubUser,
+    reasoningEffort,
+    setReasoningEffort,
+    permissionMode,
+    setPermissionMode,
+    mcpServers,
+    showToolOutputDetails,
+    availableModels,
+    pendingInputInsertion,
+    consumeInputInsertion,
+  } = useAppStore(
+    useShallow((state) => ({
+      activeThreadId: state.activeThreadId,
+      thread: state.activeThreadId
+        ? state.threads.find((threadEntry) => threadEntry.id === state.activeThreadId) || null
+        : null,
+      activeTab: state.activeTab,
+      setActiveTab: state.setActiveTab,
+      addMessage: state.addMessage,
+      appendToMessage: state.appendToMessage,
+      updateMessage: state.updateMessage,
+      updateThread: state.updateThread,
+      appendThinking: state.appendThinking,
+      addToolCall: state.addToolCall,
+      updateToolCallStatus: state.updateToolCallStatus,
+      addThreadTokenUsage: state.addThreadTokenUsage,
+      projectPath: state.projectPath,
+      selectedModel: state.selectedModel,
+      setSelectedModel: state.setSelectedModel,
+      githubUser: state.githubUser,
+      reasoningEffort: state.reasoningEffort,
+      setReasoningEffort: state.setReasoningEffort,
+      permissionMode: state.permissionMode,
+      setPermissionMode: state.setPermissionMode,
+      mcpServers: state.mcpServers,
+      showToolOutputDetails: state.showToolOutputDetails,
+      availableModels: state.availableModels,
+      pendingInputInsertion: state.pendingInputInsertion,
+      consumeInputInsertion: state.consumeInputInsertion,
+    })),
+  );
   const [input, setInput] = useState('');
   const [pendingPermissionByThread, setPendingPermissionByThread] =
     useState<Record<string, PendingPermissionRequest>>({});
@@ -129,8 +175,8 @@ export const ThreadPanel: React.FC = () => {
   const streamCleanupByThreadRef = useRef<Record<string, () => void>>({});
   const activeRequestIdByThreadRef = useRef<Record<string, string>>({});
 
-  const thread = threads.find((t) => t.id === activeThreadId);
   const threadProjectPath = thread?.projectPath || projectPath || '';
+  const isThreadRunning = thread?.status === 'running';
   const agentStatus = (activeThreadId && agentStatusMap[activeThreadId]) || '';
   const pendingPermission = activeThreadId ? pendingPermissionByThread[activeThreadId] || null : null;
   const pendingUserInput = activeThreadId ? pendingUserInputByThread[activeThreadId] || null : null;
@@ -172,7 +218,7 @@ export const ThreadPanel: React.FC = () => {
         inputRef.current?.focus();
       }
     }
-  }, [pendingInputInsertion]);
+  }, [pendingInputInsertion, consumeInputInsertion]);
 
   // Listen for permission requests from the agent backend.
   useEffect(() => {
@@ -230,6 +276,25 @@ export const ThreadPanel: React.FC = () => {
   const showFullThinking = (messageId: string) => {
     setExpandedFullThinkingByMessage((prev) => ({ ...prev, [messageId]: true }));
   };
+
+  const handleTabKeyDown = (
+    event: React.KeyboardEvent<HTMLButtonElement>,
+    tab: (typeof THREAD_TABS)[number],
+  ) => {
+    if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+    event.preventDefault();
+    const currentIndex = THREAD_TABS.indexOf(tab);
+    const nextIndex = event.key === 'ArrowRight'
+      ? (currentIndex + 1) % THREAD_TABS.length
+      : (currentIndex - 1 + THREAD_TABS.length) % THREAD_TABS.length;
+    setActiveTab(THREAD_TABS[nextIndex]);
+  };
+
+  const tabPanelFallback = (
+    <div className="flex-1 flex items-center justify-center text-xs text-muted-foreground">
+      Loading panel…
+    </div>
+  );
 
   const handleCancel = () => {
     if (!thread || !activeThreadId) return;
@@ -312,15 +377,12 @@ export const ThreadPanel: React.FC = () => {
         }
       };
 
-      const handler = (streamThreadId: string, data: unknown) => {
-        const payload = toAgentStreamPayload(data);
-        if (!payload) return;
-        if (streamThreadId !== threadId) return;
-        if (payload.requestId && payload.requestId !== requestId) return;
-        if (activeRequestIdByThreadRef.current[threadId] !== requestId) return;
+      const isCurrentPayload = (payload: AgentStreamPayload) =>
+        (!payload.requestId || payload.requestId === requestId)
+        && activeRequestIdByThreadRef.current[threadId] === requestId;
 
+      const processPayload = (payload: AgentStreamPayload) => {
         if (payload.type === 'turn_reset') {
-          // New assistant turn — replace accumulated content with fresh output.
           if (rafId !== null) {
             cancelAnimationFrame(rafId);
             rafId = null;
@@ -427,6 +489,25 @@ export const ThreadPanel: React.FC = () => {
           setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
         }
       };
+
+      const handler = (streamThreadId: string, data: unknown) => {
+        const payload = toAgentStreamPayload(data);
+        if (!payload) return;
+        if (streamThreadId !== threadId) return;
+        if (!isCurrentPayload(payload)) return;
+
+        if (payload.type === 'batch') {
+          const events = Array.isArray(payload.events) ? payload.events : [];
+          for (const rawEvent of events) {
+            const nestedPayload = toAgentStreamPayload(rawEvent);
+            if (!nestedPayload || !isCurrentPayload(nestedPayload)) continue;
+            processPayload(nestedPayload);
+          }
+          return;
+        }
+
+        processPayload(payload);
+      };
       streamCleanupByThreadRef.current[threadId] = cleanup;
       unsub = api.on('agent:stream', handler);
       api.send('agent:send', {
@@ -492,37 +573,53 @@ export const ThreadPanel: React.FC = () => {
           {thread.tokenUsage && thread.tokenUsage.totalTokens > 0 && (
             <TokenCounter usage={thread.tokenUsage} />
           )}
-          <div className="flex gap-0.5 bg-secondary rounded-lg p-1 overflow-x-auto" role="tablist" aria-label="Thread view tabs">
+          <div
+            className="flex gap-0.5 bg-secondary/80 rounded-lg p-1 overflow-x-auto border border-border/70"
+            role="tablist"
+            aria-label="Thread view tabs"
+          >
             <button
+              id="thread-tab-chat"
               data-testid="tab-chat"
               aria-label="Chat tab"
               role="tab"
               aria-selected={activeTab === 'chat'}
+              aria-controls="thread-tabpanel-chat"
+              tabIndex={activeTab === 'chat' ? 0 : -1}
               className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
                 activeTab === 'chat' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
               onClick={() => setActiveTab('chat')}
+              onKeyDown={(event) => handleTabKeyDown(event, 'chat')}
             >
               <MessageSquare className="w-3.5 h-3.5" /> Chat
             </button>
             <button
+              id="thread-tab-diff"
               data-testid="tab-diff"
               aria-label="Diff tab"
               role="tab"
               aria-selected={activeTab === 'diff'}
+              aria-controls="thread-tabpanel-diff"
+              tabIndex={activeTab === 'diff' ? 0 : -1}
               className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
                 activeTab === 'diff' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
               onClick={() => setActiveTab('diff')}
+              onKeyDown={(event) => handleTabKeyDown(event, 'diff')}
             >
               <GitCompare className="w-3.5 h-3.5" /> Diff
             </button>
             <button
+              id="thread-tab-terminal"
               data-testid="tab-terminal"
               aria-label="Terminal tab"
               role="tab"
               aria-selected={activeTab === 'terminal'}
+              aria-controls="thread-tabpanel-terminal"
+              tabIndex={activeTab === 'terminal' ? 0 : -1}
               className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
                 activeTab === 'terminal' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
               onClick={() => setActiveTab('terminal')}
+              onKeyDown={(event) => handleTabKeyDown(event, 'terminal')}
             >
               <TerminalSquare className="w-3.5 h-3.5" /> Terminal
             </button>
@@ -531,12 +628,23 @@ export const ThreadPanel: React.FC = () => {
       </div>
 
       {/* Chat Tab — kept mounted to preserve scroll position */}
-      <div className={cn('flex-1 flex flex-col min-h-0 overflow-hidden', activeTab !== 'chat' && 'hidden')}>
-          <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
+      <div
+        id="thread-tabpanel-chat"
+        role="tabpanel"
+        aria-labelledby="thread-tab-chat"
+        aria-hidden={activeTab !== 'chat'}
+        className={cn('flex-1 flex flex-col min-h-0 overflow-hidden', activeTab !== 'chat' && 'hidden')}
+      >
+          <div
+            ref={scrollContainerRef}
+            className="flex-1 min-h-0 overflow-y-auto"
+            aria-live="polite"
+            aria-busy={isThreadRunning}
+          >
             <div className="px-8 py-4">
               {thread.messages.length === 0 && (
-                <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 pb-20">
-                  <LoomIcon className="w-12 h-12 text-muted-foreground opacity-30" strokeWidth={1} />
+                <div className="flex flex-col items-center justify-center min-h-[400px] gap-3 pb-20 rounded-xl border border-dashed border-border/70 bg-secondary/15">
+                  <LoomIcon className="w-12 h-12 text-muted-foreground opacity-40" strokeWidth={1} />
                   <p className="text-muted-foreground text-[15px]">Start a conversation to work on this task</p>
                   <p className="text-muted-foreground/60 text-xs">Copilot can write code, run commands, review diffs, and more</p>
                 </div>
@@ -809,7 +917,7 @@ export const ThreadPanel: React.FC = () => {
 
           {/* Input */}
           <div className="px-8 pb-6 pt-3">
-            <div className="flex items-center bg-secondary/60 border rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
+            <div className="flex items-center bg-secondary/60 border border-border/80 rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
               <textarea
                 data-testid="thread-input"
                 data-loom-chat-input="true"
@@ -818,17 +926,18 @@ export const ThreadPanel: React.FC = () => {
                 className="flex-1 px-3.5 py-2 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
                 placeholder="Ask Copilot to work on something..."
                 value={input}
-                disabled={thread.status === 'running'}
+                disabled={isThreadRunning}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={handleKeyDown}
                 rows={1}
               />
-              {thread.status === 'running' ? (
+              {isThreadRunning ? (
                 <Button
                   data-testid="thread-stop"
                   size="icon"
                   variant="destructive"
                   className="h-9 w-9 rounded-[10px] shrink-0 self-end"
+                  aria-label="Stop response"
                   onClick={handleCancel}
                 >
                   <Square className="w-4 h-4" />
@@ -838,6 +947,7 @@ export const ThreadPanel: React.FC = () => {
                   data-testid="thread-send"
                   size="icon"
                   className="h-9 w-9 rounded-[10px] shrink-0 self-end"
+                  aria-label="Send message"
                   onClick={handleSend}
                   disabled={!input.trim()}
                 >
@@ -854,6 +964,8 @@ export const ThreadPanel: React.FC = () => {
                       <button
                         key={level}
                         onClick={() => setReasoningEffort(level)}
+                        aria-label={`Set reasoning effort to ${level}`}
+                        aria-pressed={reasoningEffort === level}
                         className={cn(
                           'px-1.5 py-0.5 rounded text-[10px] font-medium transition-all',
                           reasoningEffort === level
@@ -873,6 +985,8 @@ export const ThreadPanel: React.FC = () => {
                     <button
                       key={mode}
                       onClick={() => setPermissionMode(mode)}
+                      aria-label={`Permission mode ${mode}`}
+                      aria-pressed={permissionMode === mode}
                       className={cn(
                         'px-1.5 py-0.5 rounded text-[10px] font-medium transition-all',
                         permissionMode === mode
@@ -896,10 +1010,22 @@ export const ThreadPanel: React.FC = () => {
         </div>
 
       {/* Diff Tab */}
-      {activeTab === 'diff' && <DiffView projectPath={threadProjectPath} />}
+      {activeTab === 'diff' && (
+        <div id="thread-tabpanel-diff" role="tabpanel" aria-labelledby="thread-tab-diff" className="flex-1 min-h-0">
+          <Suspense fallback={tabPanelFallback}>
+            <DiffView projectPath={threadProjectPath} />
+          </Suspense>
+        </div>
+      )}
 
       {/* Terminal Tab */}
-      {activeTab === 'terminal' && <TerminalView threadId={thread.id} projectPath={threadProjectPath} />}
+      {activeTab === 'terminal' && (
+        <div id="thread-tabpanel-terminal" role="tabpanel" aria-labelledby="thread-tab-terminal" className="flex-1 min-h-0">
+          <Suspense fallback={tabPanelFallback}>
+            <TerminalView threadId={thread.id} projectPath={threadProjectPath} />
+          </Suspense>
+        </div>
+      )}
     </div>
   );
 };

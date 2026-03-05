@@ -5,13 +5,20 @@ import { WelcomeScreen } from './components/WelcomeScreen';
 import { TooltipProvider } from './components/ui/tooltip';
 import { SettingsPanel } from './components/SettingsPanel';
 import { useAppStore } from './store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 
 const App: React.FC = () => {
-  const activeThreadId = useAppStore((s) => s.activeThreadId);
-  const projectPath = useAppStore((s) => s.projectPath);
-  const theme = useAppStore((s) => s.theme);
-  const createThread = useAppStore((s) => s.createThread);
-  const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const {
+    activeThreadId, projectPath, theme, createThread, setShowSettings,
+  } = useAppStore(
+    useShallow((state) => ({
+      activeThreadId: state.activeThreadId,
+      projectPath: state.projectPath,
+      theme: state.theme,
+      createThread: state.createThread,
+      setShowSettings: state.setShowSettings,
+    })),
+  );
 
   useEffect(() => {
     const apply = (resolved: 'light' | 'dark') => {

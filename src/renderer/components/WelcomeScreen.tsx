@@ -2,20 +2,17 @@ import React from 'react';
 import { useAppStore } from '../store/appStore';
 import { FolderPlus, Sparkles } from 'lucide-react';
 import { Button } from './ui/button';
+import { selectProjectFromDialog } from '../lib/utils';
 
 export const WelcomeScreen: React.FC = () => {
   const projectPath = useAppStore((s) => s.projectPath);
   const setProject = useAppStore((s) => s.setProject);
 
   const handleOpenProject = async () => {
-    const api = window.electronAPI;
-    if (!api) return;
     try {
-      const selectedPath = await api.invoke<string | null>('project:select-dir');
-      if (typeof selectedPath === 'string' && selectedPath.length > 0) {
-        const name = selectedPath.split(/[/\\]/).pop() || selectedPath;
-        setProject(selectedPath, name);
-      }
+      const selection = await selectProjectFromDialog();
+      if (!selection) return;
+      setProject(selection.path, selection.name);
     } catch {
       // Dialog cancelled or IPC error
     }

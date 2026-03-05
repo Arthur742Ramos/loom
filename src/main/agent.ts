@@ -103,6 +103,8 @@ interface AgentRequest {
 }
 
 type StreamPayload = { type: string } & Record<string, unknown>;
+const STREAM_BATCH_WINDOW_MS = 16;
+const BATCHABLE_STREAM_EVENT_TYPES = new Set(['chunk', 'thinking']);
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
@@ -396,6 +398,58 @@ function sendStream(sender: Electron.WebContents, request: AgentRequest, payload
     request.threadId,
     request.requestId ? { ...payload, requestId: request.requestId } : payload,
   );
+}
+
+function createStreamDispatcher(sender: Electron.WebContents, request: AgentRequest): {
+  send: (payload: StreamPayload) => void;
+  flush: () => void;
+  dispose: () => void;
+} {
+  let buffered: StreamPayload[] = [];
+  let flushTimer: NodeJS.Timeout | null = null;
+
+  const flush = () => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+    if (buffered.length === 0) return;
+    if (buffered.length === 1) {
+      sendStream(sender, request, buffered[0]);
+      buffered = [];
+      return;
+    }
+    sendStream(sender, request, { type: 'batch', events: buffered });
+    buffered = [];
+  };
+
+  const enqueue = (payload: StreamPayload) => {
+    buffered.push(payload);
+    if (flushTimer) return;
+    flushTimer = setTimeout(() => {
+      flushTimer = null;
+      flush();
+    }, STREAM_BATCH_WINDOW_MS);
+  };
+
+  const send = (payload: StreamPayload) => {
+    if (!BATCHABLE_STREAM_EVENT_TYPES.has(payload.type)) {
+      flush();
+      sendStream(sender, request, payload);
+      return;
+    }
+    enqueue(payload);
+  };
+
+  const dispose = () => {
+    flush();
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+      flushTimer = null;
+    }
+  };
+
+  return { send, flush, dispose };
 }
 
 const toScriptedEventList = (value: unknown): ScriptedTestEvent[] | null =>
@@ -746,6 +800,7 @@ export function setupAgentHandlers() {
 
     const runOnce = async () => {
       let unsubscribe: (() => void) | undefined;
+      const stream = createStreamDispatcher(event.sender, request);
       try {
         const client = await getClient();
 
@@ -782,36 +837,36 @@ export function setupAgentHandlers() {
             const msgId = asOptionalString(data.messageId);
             if (msgId && msgId !== currentMessageId) {
               currentMessageId = msgId;
-              sendStream(event.sender, request, { type: 'turn_reset' });
+              stream.send({ type: 'turn_reset' });
             }
-            sendStream(event.sender, request, { type: 'chunk', content });
+            stream.send({ type: 'chunk', content });
           } else if (evt.type === 'assistant.reasoning') {
             const content = asOptionalString(data.content) || '';
             if (content) {
-              sendStream(event.sender, request, { type: 'thinking', content });
+              stream.send({ type: 'thinking', content });
             }
           } else if (evt.type === 'assistant.reasoning_delta') {
             const content = asOptionalString(data.deltaContent) || '';
             if (content) {
-              sendStream(event.sender, request, { type: 'thinking', content });
+              stream.send({ type: 'thinking', content });
             }
           } else if (evt.type === 'assistant.usage') {
             const usage = normalizeUsagePayload(data);
             if (usage) {
-              sendStream(event.sender, request, {
+              stream.send({
                 type: 'usage',
                 ...usage,
               });
             }
           } else if (evt.type === 'assistant.intent') {
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'status',
               status: asOptionalString(data.intent) || 'Working...',
             });
           } else if (evt.type === 'tool.execution_start') {
             const toolCallId = asOptionalString(data.toolCallId) || nextFallbackToolCallId();
             runningToolCallIds.push(toolCallId);
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'tool_start',
               toolCallId,
               toolName: asOptionalString(data.toolName) || 'tool',
@@ -820,7 +875,7 @@ export function setupAgentHandlers() {
             const toolCallId = resolveRunningToolCallId(runningToolCallIds, data.toolCallId);
             const result = isPlainObject(data.result) ? data.result : {};
             const error = isPlainObject(data.error) ? data.error : {};
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'tool_end',
               toolCallId,
               success: data.success,
@@ -828,7 +883,7 @@ export function setupAgentHandlers() {
               error: asOptionalString(error.message),
             });
           } else if (evt.type === 'skill.invoked') {
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'status',
               status: `⚡ Skill: ${asOptionalString(data.name) || 'unknown'}`,
             });
@@ -838,14 +893,14 @@ export function setupAgentHandlers() {
             const subagentName = asOptionalString(data.agentDisplayName)
               || asOptionalString(data.agentName)
               || 'subagent';
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'tool_start',
               toolCallId,
               toolName: `🤖 ${subagentName}`,
             });
           } else if (evt.type === 'subagent.completed' || evt.type === 'subagent.failed') {
             const toolCallId = resolveRunningToolCallId(runningToolCallIds, data.toolCallId);
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'tool_end',
               toolCallId,
               success: evt.type === 'subagent.completed',
@@ -854,7 +909,7 @@ export function setupAgentHandlers() {
                 : undefined,
             });
           } else if (evt.type === 'session.error') {
-            sendStream(event.sender, request, {
+            stream.send({
               type: 'error',
               content: asOptionalString(data.message) || 'Unknown error',
             });
@@ -865,11 +920,12 @@ export function setupAgentHandlers() {
         // Send the final complete content so the renderer can fill in any
         // gaps left by streaming deltas (e.g. tool-heavy agentic responses).
         const finalContent = result?.data?.content;
-        sendStream(event.sender, request, {
+        stream.send({
           type: 'done',
           content: typeof finalContent === 'string' ? finalContent : undefined,
         });
       } finally {
+        stream.dispose();
         if (unsubscribe) {
           try {
             unsubscribe();

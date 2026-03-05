@@ -20,7 +20,7 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
         setFiles(parsed);
         setExpandedFiles(new Set(parsed.map((f) => f.path)));
       }
-    } catch (err) {
+    } catch (err: unknown) {
       console.error('Failed to load diff:', err);
       setFiles([]);
     }
@@ -48,7 +48,7 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
   );
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="diff-view">
+    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="diff-view" aria-busy={loading}>
       <div className="flex items-center gap-2 px-4 py-2 border-b bg-card shrink-0">
         <Button
           variant="outline"
@@ -83,7 +83,7 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto">
         {loading && (
-          <div className="p-4 space-y-2" aria-live="polite">
+          <div className="p-4 space-y-2" aria-live="polite" role="status">
             {Array.from({ length: 4 }).map((_, index) => (
               <div key={index} className="h-7 rounded-md bg-secondary/60 animate-pulse" />
             ))}
@@ -101,6 +101,7 @@ export const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => 
             <button
               className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-secondary/40 transition-colors"
               onClick={() => toggleFile(file.path)}
+              aria-expanded={expandedFiles.has(file.path)}
             >
               <ChevronDown className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform',
                 !expandedFiles.has(file.path) && '-rotate-90')} />

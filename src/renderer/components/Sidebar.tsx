@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GitHubUser, useAppStore } from '../store/appStore';
+import { useShallow } from 'zustand/react/shallow';
 import {
   SquarePen, LayoutGrid, Folder, FolderPlus, ListFilter, FolderPlusIcon,
   Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw, Settings, Copy, X,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
+import { cn, selectProjectFromDialog } from '../lib/utils';
 import { LoomLogo } from './LoomIcon';
 
 interface MentionableEntry {
@@ -80,32 +81,55 @@ const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> =
 };
 
 export const Sidebar: React.FC = () => {
-  const threads = useAppStore((s) => s.threads);
-  const projects = useAppStore((s) => s.projects);
-  const activeThreadId = useAppStore((s) => s.activeThreadId);
-  const setActiveThread = useAppStore((s) => s.setActiveThread);
-  const createThread = useAppStore((s) => s.createThread);
-  const removeThread = useAppStore((s) => s.removeThread);
-  const updateThread = useAppStore((s) => s.updateThread);
+  const {
+    threads,
+    projects,
+    activeThreadId,
+    setActiveThread,
+    createThread,
+    removeThread,
+    updateThread,
+    projectPath,
+    projectName,
+    setProject,
+    githubUser,
+    setGitHubUser,
+    fetchModels,
+    mcpServers,
+    addMcpServer,
+    removeMcpServer,
+    setShowSettings,
+    insertIntoChatInput,
+  } = useAppStore(
+    useShallow((state) => ({
+      threads: state.threads,
+      projects: state.projects,
+      activeThreadId: state.activeThreadId,
+      setActiveThread: state.setActiveThread,
+      createThread: state.createThread,
+      removeThread: state.removeThread,
+      updateThread: state.updateThread,
+      projectPath: state.projectPath,
+      projectName: state.projectName,
+      setProject: state.setProject,
+      githubUser: state.githubUser,
+      setGitHubUser: state.setGitHubUser,
+      fetchModels: state.fetchModels,
+      mcpServers: state.mcpServers,
+      addMcpServer: state.addMcpServer,
+      removeMcpServer: state.removeMcpServer,
+      setShowSettings: state.setShowSettings,
+      insertIntoChatInput: state.insertIntoChatInput,
+    })),
+  );
   const [editingThreadId, setEditingThreadId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
-  const projectPath = useAppStore((s) => s.projectPath);
-  const projectName = useAppStore((s) => s.projectName);
-  const setProject = useAppStore((s) => s.setProject);
-  const githubUser = useAppStore((s) => s.githubUser);
-  const setGitHubUser = useAppStore((s) => s.setGitHubUser);
-  const fetchModels = useAppStore((s) => s.fetchModels);
   const [loginLoading, setLoginLoading] = useState(false);
   const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUri: string } | null>(null);
   const [codeCopied, setCodeCopied] = useState(false);
-  const mcpServers = useAppStore((s) => s.mcpServers);
-  const addMcpServer = useAppStore((s) => s.addMcpServer);
-  const removeMcpServer = useAppStore((s) => s.removeMcpServer);
   const [showMcp, setShowMcp] = useState(false);
   const [mcpForm, setMcpForm] = useState({ name: '', command: '', args: '' });
   const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServer>>({});
-  const setShowSettings = useAppStore((s) => s.setShowSettings);
-  const insertIntoChatInput = useAppStore((s) => s.insertIntoChatInput);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<MentionableEntry[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -114,6 +138,7 @@ export const Sidebar: React.FC = () => {
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [showThreadFilter, setShowThreadFilter] = useState(false);
   const [threadFilter, setThreadFilter] = useState('');
+  const [debouncedThreadFilter, setDebouncedThreadFilter] = useState('');
   const isMountedRef = useRef(true);
   const latestProjectPathRef = useRef<string | null>(projectPath);
   const skillsRequestIdRef = useRef(0);
@@ -134,9 +159,16 @@ export const Sidebar: React.FC = () => {
     setAgents([]);
   }, [projectPath]);
 
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      setDebouncedThreadFilter(threadFilter);
+    }, 120);
+    return () => window.clearTimeout(timeoutId);
+  }, [threadFilter]);
+
   const normalizedThreadFilter = useMemo(
-    () => threadFilter.trim().toLowerCase(),
-    [threadFilter],
+    () => debouncedThreadFilter.trim().toLowerCase(),
+    [debouncedThreadFilter],
   );
 
   const threadsByProject = useMemo(() => {
@@ -249,13 +281,10 @@ export const Sidebar: React.FC = () => {
   };
 
   const handleOpenProject = async () => {
-    if (!window.electronAPI) return;
     try {
-      const selectedPath = await window.electronAPI.invoke<string | null>('project:select-dir');
-      if (typeof selectedPath === 'string' && selectedPath.length > 0) {
-        const name = selectedPath.split(/[/\\]/).pop() || selectedPath;
-        setProject(selectedPath, name);
-      }
+      const selection = await selectProjectFromDialog();
+      if (!selection) return;
+      setProject(selection.path, selection.name);
     } catch (error: unknown) {
       console.warn('Failed to open project picker:', getErrorMessage(error));
     }
@@ -349,7 +378,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0" data-testid="sidebar" aria-label="Sidebar navigation">
+    <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0 border-r border-border/70 bg-background/70" data-testid="sidebar" aria-label="Sidebar navigation">
       {/* Brand */}
       <div className="px-5 mb-6 flex items-center gap-2.5 shrink-0">
         <LoomLogo className="w-7 h-7 p-1" />
@@ -362,6 +391,7 @@ export const Sidebar: React.FC = () => {
       <nav className="px-3 space-y-0.5 mb-6" aria-label="Main navigation">
         <button
           data-testid="new-thread-button"
+          aria-label="Create new thread"
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors"
           onClick={() => handleNewThread()}
         >
@@ -369,6 +399,7 @@ export const Sidebar: React.FC = () => {
           New thread
         </button>
         <button
+          aria-expanded={showMcp}
           className={cn(
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
             showMcp && 'bg-secondary',
@@ -408,6 +439,7 @@ export const Sidebar: React.FC = () => {
                   <p className="text-muted-foreground truncate font-mono text-[10px]">{config.command} {config.args?.join(' ') || ''}</p>
                 </div>
                 <button
+                  aria-label={`Remove MCP server ${name}`}
                   className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
                   onClick={(e) => { e.stopPropagation(); removeMcpServer(name); }}
                 >
@@ -453,6 +485,7 @@ export const Sidebar: React.FC = () => {
           </div>
         )}
         <button
+          aria-expanded={showSkills}
           className={cn(
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
             showSkills && 'bg-secondary',
@@ -464,7 +497,7 @@ export const Sidebar: React.FC = () => {
         </button>
         {showSkills && (
           <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
-            {skillsLoading && <p className="text-[11px] text-muted-foreground/60 py-1">Loading...</p>}
+            {skillsLoading && <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite">Loading...</p>}
             {!skillsLoading && skills.length === 0 && (
               <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
                 <p>No skills found.</p>
@@ -474,6 +507,7 @@ export const Sidebar: React.FC = () => {
             {skills.map((skill, i) => (
               <button
                 key={`skill-${skill.name}-${i}`}
+                aria-label={`Mention skill ${skill.name}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
                   insertIntoChatInput(`@${skill.name} `);
@@ -490,6 +524,7 @@ export const Sidebar: React.FC = () => {
           </div>
         )}
         <button
+          aria-expanded={showAgents}
           className={cn(
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
             showAgents && 'bg-secondary',
@@ -501,7 +536,7 @@ export const Sidebar: React.FC = () => {
         </button>
         {showAgents && (
           <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
-            {agentsLoading && <p className="text-[11px] text-muted-foreground/60 py-1">Loading...</p>}
+            {agentsLoading && <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite">Loading...</p>}
             {!agentsLoading && agents.length === 0 && (
               <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
                 <p>No agents found.</p>
@@ -511,6 +546,7 @@ export const Sidebar: React.FC = () => {
             {agents.map((agent, i) => (
               <button
                 key={`agent-${agent.name}-${i}`}
+                aria-label={`Mention agent ${agent.name}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
                   insertIntoChatInput(`@${agent.name} `);
@@ -561,6 +597,7 @@ export const Sidebar: React.FC = () => {
       {showThreadFilter && (
         <div className="px-5 mb-2">
           <input
+            aria-label="Filter threads"
             className="w-full px-2.5 py-1.5 text-xs bg-secondary/60 border rounded-md text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
             placeholder="Filter threads..."
             value={threadFilter}
@@ -578,27 +615,21 @@ export const Sidebar: React.FC = () => {
           return (
             <div className="mb-3" key={project.path}>
               {/* Project folder */}
-              <div
+              <button
+                type="button"
+                aria-label={`Project ${project.name}`}
                 className={cn(
-                  'flex items-center gap-2.5 px-3 py-2 text-sm cursor-pointer rounded-lg transition-colors',
+                  'w-full flex items-center gap-2.5 px-3 py-2 text-sm rounded-lg transition-colors text-left',
                   isActiveProject
                     ? 'text-foreground bg-secondary/50'
                     : 'text-foreground hover:bg-secondary/60',
                 )}
                 onClick={() => setProject(project.path, project.name)}
                 onDoubleClick={() => handleNewThread(project.path, project.name)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') {
-                    event.preventDefault();
-                    setProject(project.path, project.name);
-                  }
-                }}
-                tabIndex={0}
-                role="button"
               >
                 <Folder className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
                 {project.name}
-              </div>
+              </button>
 
               {/* Thread list under project */}
               {projectThreads.length === 0 ? (
@@ -608,8 +639,10 @@ export const Sidebar: React.FC = () => {
                   {projectThreads.map((thread) => (
                     <div
                       key={thread.id}
+                      aria-label={`Thread ${thread.title}`}
+                      aria-selected={activeThreadId === thread.id}
                       className={cn(
-                        'group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors relative',
+                        'group flex items-center gap-2 px-3 py-2 rounded-lg cursor-pointer text-sm transition-colors relative focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
                         activeThreadId === thread.id
                           ? 'bg-secondary text-foreground'
                           : 'text-muted-foreground hover:bg-secondary/60 hover:text-foreground',
@@ -693,6 +726,7 @@ export const Sidebar: React.FC = () => {
       <div className="px-3 mb-1 shrink-0">
         <button
           data-testid="settings-button"
+          aria-label="Open settings"
           className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
           onClick={() => setShowSettings(true)}
         >
@@ -714,6 +748,7 @@ export const Sidebar: React.FC = () => {
             </span>
             <button
               data-testid="logout-button"
+              aria-label="Sign out"
               className="text-muted-foreground hover:text-foreground transition-colors p-1"
               onClick={handleLogout}
               title="Sign out"
@@ -731,6 +766,7 @@ export const Sidebar: React.FC = () => {
                 {deviceCode.userCode}
               </code>
               <button
+                aria-label={codeCopied ? 'Code copied' : 'Copy device code'}
                 className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded hover:bg-secondary"
                 onClick={async () => {
                   try {
@@ -752,6 +788,7 @@ export const Sidebar: React.FC = () => {
                 Waiting for authorization…
               </span>
               <button
+                aria-label="Cancel login"
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-secondary"
                 onClick={handleCancelLogin}
                 title="Cancel"
