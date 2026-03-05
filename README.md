@@ -86,6 +86,8 @@ flowchart LR
 - Runtime sessions now load project skills from `.github/copilot/skills` and `.copilot/skills` via `skillDirectories`.
 - `@agent ... @skill ...` mentions are forwarded unchanged in prompt text, matching Copilot SDK message semantics.
 - Test-only main-process IPC handlers are registered idempotently and guard unavailable windows.
+- Agent stream payloads are normalized at IPC boundaries to avoid malformed event crashes across main/renderer.
+- Renderer agent error UI now falls back to `Error: Unknown agent error` when providers omit message content.
 
 ## 🔄 Deep Review Sweep (Mar 2026)
 
