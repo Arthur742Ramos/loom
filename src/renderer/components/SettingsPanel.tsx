@@ -1,6 +1,6 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore } from '../store/appStore';
-import { X, Sun, Moon, Monitor } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Download } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
@@ -11,6 +11,15 @@ export const SettingsPanel: React.FC = () => {
   const setTheme = useAppStore((s) => s.setTheme);
   const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
   const setShowToolOutputDetails = useAppStore((s) => s.setShowToolOutputDetails);
+  const [updateStatus, setUpdateStatus] = useState<{ status: string; version?: string } | null>(null);
+
+  useEffect(() => {
+    const api = window.electronAPI;
+    if (!api) return;
+    return api.on('updater:status', (data: any) => {
+      setUpdateStatus(data);
+    });
+  }, []);
 
   if (!showSettings) return null;
 
@@ -82,9 +91,35 @@ export const SettingsPanel: React.FC = () => {
           </label>
         </div>
 
-        {/* Version */}
+        {/* Version & Updates */}
         <div className="px-6 py-4 border-t">
-          <p className="text-[11px] text-muted-foreground">Loom v0.1.0 · Powered by GitHub Copilot</p>
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] text-muted-foreground">Loom v0.1.0 · Powered by GitHub Copilot</p>
+            {updateStatus?.status === 'downloaded' ? (
+              <Button
+                size="sm"
+                className="h-7 text-xs gap-1.5"
+                onClick={() => window.electronAPI?.send('updater:install')}
+              >
+                <Download className="w-3 h-3" />
+                Install v{updateStatus.version}
+              </Button>
+            ) : updateStatus?.status === 'available' ? (
+              <span className="text-[11px] text-primary">Downloading v{updateStatus.version}…</span>
+            ) : (
+              <button
+                className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
+                onClick={async () => {
+                  const api = window.electronAPI;
+                  if (!api) return;
+                  const result = await api.invoke('updater:check');
+                  if (!result.available) setUpdateStatus({ status: 'up-to-date' });
+                }}
+              >
+                {updateStatus?.status === 'up-to-date' ? '✓ Up to date' : 'Check for updates'}
+              </button>
+            )}
+          </div>
         </div>
       </div>
     </div>

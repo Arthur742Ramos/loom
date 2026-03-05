@@ -4,6 +4,7 @@ import { setupGitHandlers } from './git';
 import { setupTerminalHandlers } from './terminal';
 import { setupAgentHandlers } from './agent';
 import { setupAuthHandlers } from './auth';
+import { autoUpdater } from 'electron-updater';
 
 // Suppress ERR_STREAM_DESTROYED rejections from vscode-jsonrpc when the
 // Copilot SDK's underlying process exits between messages.  The agent
@@ -99,6 +100,48 @@ app.whenReady().then(() => {
     });
     return result.canceled ? null : result.filePaths[0];
   });
+
+  // Auto-update — checks GitHub Releases for new versions
+  if (process.env.NODE_ENV !== 'development' && process.env.LOOM_TEST_MODE !== '1') {
+    autoUpdater.autoDownload = true;
+    autoUpdater.autoInstallOnAppQuit = true;
+    autoUpdater.logger = null; // suppress verbose logging
+
+    autoUpdater.on('update-available', (info) => {
+      mainWindow?.webContents.send('updater:status', {
+        status: 'available',
+        version: info.version,
+      });
+    });
+
+    autoUpdater.on('update-downloaded', (info) => {
+      mainWindow?.webContents.send('updater:status', {
+        status: 'downloaded',
+        version: info.version,
+      });
+    });
+
+    autoUpdater.on('error', (err) => {
+      console.error('Auto-update error:', err.message);
+    });
+
+    // Check for updates after a short delay to not slow down startup
+    setTimeout(() => autoUpdater.checkForUpdates().catch(() => {}), 5000);
+
+    // IPC for manual check / install
+    ipcMain.handle('updater:check', async () => {
+      try {
+        const result = await autoUpdater.checkForUpdates();
+        return { available: !!result?.updateInfo, version: result?.updateInfo?.version };
+      } catch {
+        return { available: false };
+      }
+    });
+
+    ipcMain.on('updater:install', () => {
+      autoUpdater.quitAndInstall(false, true);
+    });
+  }
 });
 
 app.on('window-all-closed', () => {

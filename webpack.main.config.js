@@ -29,6 +29,7 @@ module.exports = [
       'node-pty': 'commonjs node-pty',
       'simple-git': 'commonjs simple-git',
       '@github/copilot-sdk': 'commonjs @github/copilot-sdk',
+      'electron-updater': 'commonjs electron-updater',
     },
   },
   // Preload script bundle

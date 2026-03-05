@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'agent:send', 'agent:cancel',
       'terminal:data', 'terminal:resize', 'terminal:dispose',
       'window:minimize', 'window:maximize', 'window:close',
+      'updater:install',
     ];
     if (allowedSendChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
@@ -28,6 +29,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'terminal:create',
       'agent:list-models', 'agent:list-skills', 'agent:list-agents', 'agent:list-project-mcp',
       'project:select-dir',
+      'updater:check',
       'test:screenshot', 'test:exec',
     ];
     if (allowedInvokeChannels.includes(channel)) {
@@ -40,7 +42,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   on: (channel: string, callback: (...args: any[]) => void) => {
     const allowedReceiveChannels = [
       'agent:stream', 'agent:permission-request', 'agent:user-input-request',
-      'terminal:data', 'auth:login-complete',
+      'terminal:data', 'auth:login-complete', 'updater:status',
     ];
     if (allowedReceiveChannels.includes(channel)) {
       const subscription = (_event: any, ...args: any[]) => callback(...args);
@@ -55,7 +57,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   once: (channel: string, callback: (...args: any[]) => void) => {
     const allowedReceiveChannels = [
       'agent:stream', 'agent:permission-request', 'agent:user-input-request',
-      'terminal:data', 'auth:login-complete',
+      'terminal:data', 'auth:login-complete', 'updater:status',
     ];
     if (allowedReceiveChannels.includes(channel)) {
       ipcRenderer.once(channel, (_event, ...args) => callback(...args));
@@ -72,7 +74,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeListener: (channel: string, callback: (...args: any[]) => void) => {
     const allowedReceiveChannels = [
       'agent:stream', 'agent:permission-request', 'agent:user-input-request',
-      'terminal:data', 'auth:login-complete',
+      'terminal:data', 'auth:login-complete', 'updater:status',
     ];
     if (allowedReceiveChannels.includes(channel)) {
       ipcRenderer.removeListener(channel, callback);
