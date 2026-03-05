@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { useAppStore } from '../store/appStore';
 import { ChevronDown, Check, RefreshCw, Loader2 } from 'lucide-react';
 import { cn } from '../lib/utils';
@@ -14,7 +14,11 @@ export const ModelPicker: React.FC<{
   const availableModels = useAppStore((s) => s.availableModels);
   const modelsLoading = useAppStore((s) => s.modelsLoading);
   const fetchModels = useAppStore((s) => s.fetchModels);
-  const current = availableModels.find((m) => m.id === value);
+  const normalizedSearch = search.trim().toLowerCase();
+  const current = useMemo(
+    () => availableModels.find((model) => model.id === value),
+    [availableModels, value],
+  );
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
@@ -31,14 +35,28 @@ export const ModelPicker: React.FC<{
     }
   }, [open]);
 
-  const filtered = availableModels.filter(
-    (m) =>
-      m.label.toLowerCase().includes(search.toLowerCase()) ||
-      m.provider.toLowerCase().includes(search.toLowerCase()) ||
-      m.id.toLowerCase().includes(search.toLowerCase()),
-  );
+  const filtered = useMemo(() => {
+    if (!normalizedSearch) return availableModels;
+    return availableModels.filter(
+      (model) =>
+        model.label.toLowerCase().includes(normalizedSearch)
+        || model.provider.toLowerCase().includes(normalizedSearch)
+        || model.id.toLowerCase().includes(normalizedSearch),
+    );
+  }, [availableModels, normalizedSearch]);
 
-  const providers = [...new Set(filtered.map((m) => m.provider))];
+  const groupedProviders = useMemo(() => {
+    const grouped = new Map<string, typeof filtered>();
+    for (const model of filtered) {
+      const existing = grouped.get(model.provider);
+      if (existing) {
+        existing.push(model);
+      } else {
+        grouped.set(model.provider, [model]);
+      }
+    }
+    return [...grouped.entries()];
+  }, [filtered]);
 
   return (
     <div className="relative" ref={ref}>
@@ -71,11 +89,10 @@ export const ModelPicker: React.FC<{
             </button>
           </div>
           <div className="overflow-y-auto py-1">
-            {providers.length === 0 && (
+            {groupedProviders.length === 0 && (
               <p className="px-3 py-2 text-[11px] text-muted-foreground">No models found</p>
             )}
-            {providers.map((provider) => {
-              const models = filtered.filter((m) => m.provider === provider);
+            {groupedProviders.map(([provider, models]) => {
               return (
                 <div key={provider}>
                   <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider sticky top-0 bg-card">
