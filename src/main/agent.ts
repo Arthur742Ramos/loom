@@ -417,6 +417,13 @@ async function getClient(): Promise<any> {
   return clientPromise;
 }
 
+export function setClientForTests(client: any | null): void {
+  clientPromise = client ? Promise.resolve(client) : null;
+  if (!client) {
+    CopilotClientClass = null;
+  }
+}
+
 async function resetClient(): Promise<void> {
   const previousClientPromise = clientPromise;
   clientPromise = null;
@@ -492,6 +499,24 @@ export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpSe
   return {};
 }
 
+export function getProjectSkillDirectories(cwd?: string): string[] {
+  if (!cwd) return [];
+  const candidates = [
+    path.join(cwd, '.github', 'copilot', 'skills'),
+    path.join(cwd, '.copilot', 'skills'),
+  ];
+  const seen = new Set<string>();
+  return candidates.filter((dir) => {
+    if (seen.has(dir)) return false;
+    seen.add(dir);
+    try {
+      return fs.existsSync(dir) && fs.statSync(dir).isDirectory();
+    } catch {
+      return false;
+    }
+  });
+}
+
 async function getOrCreateSession(client: any, request: AgentRequest, sender: Electron.WebContents): Promise<any> {
   const permissionMode = request.permissionMode || 'ask';
 
@@ -543,6 +568,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
 
   const projectAgents = loadAgentsFromProject(request.context?.cwd);
   const projectMcp = loadMcpFromProject(request.context?.cwd);
+  const projectSkillDirectories = getProjectSkillDirectories(request.context?.cwd);
   const baseConfig = {
     model: request.model,
     reasoningEffort: request.reasoningEffort,
@@ -553,6 +579,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     onUserInputRequest,
     mcpServers: { ...projectMcp, ...(request.mcpServers || {}) },
     customAgents: [...projectAgents, ...(request.customAgents || [])],
+    skillDirectories: projectSkillDirectories,
   };
 
   // Try to resume an existing session (preserves conversation history with a fresh connection).
@@ -851,10 +878,7 @@ export function setupAgentHandlers() {
     }
 
     // Skill directories
-    for (const dir of [
-      path.join(projectPath, '.github', 'copilot', 'skills'),
-      path.join(projectPath, '.copilot', 'skills'),
-    ]) {
+    for (const dir of getProjectSkillDirectories(projectPath)) {
       try {
         if (!fs.existsSync(dir)) continue;
         for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.md'))) {

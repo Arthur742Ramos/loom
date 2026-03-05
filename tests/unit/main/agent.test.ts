@@ -243,6 +243,82 @@ describe('src/main/agent.ts', () => {
     }));
   });
 
+  it('passes skillDirectories to create/resume and forwards @agent prompt text unchanged', async () => {
+    const mockIpcMain = createMockIpcMain();
+    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-skill-fixture-'));
+    const githubSkillDir = path.join(tmpRoot, '.github', 'copilot', 'skills');
+    const dotCopilotSkillDir = path.join(tmpRoot, '.copilot', 'skills');
+    fs.mkdirSync(githubSkillDir, { recursive: true });
+    fs.mkdirSync(dotCopilotSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(githubSkillDir, 'build.md'), '# Build\nRun build steps.');
+    fs.writeFileSync(path.join(dotCopilotSkillDir, 'review.md'), '# Review\nRun review steps.');
+
+    const createSendAndWait = vi.fn().mockResolvedValue({ data: { content: 'created' } });
+    const resumeSendAndWait = vi.fn().mockResolvedValue({ data: { content: 'resumed' } });
+    const createSession = vi.fn().mockResolvedValue({
+      sessionId: 'session-1',
+      on: vi.fn().mockReturnValue(() => {}),
+      sendAndWait: createSendAndWait,
+    });
+    const resumeSession = vi.fn().mockResolvedValue({
+      sessionId: 'session-1',
+      on: vi.fn().mockReturnValue(() => {}),
+      sendAndWait: resumeSendAndWait,
+    });
+    const { setupAgentHandlers, getThreadLockCountForTests, setClientForTests } = await import('../../../src/main/agent');
+    setClientForTests({
+      createSession,
+      resumeSession,
+      forceStop: vi.fn(),
+    });
+    setupAgentHandlers();
+
+    const listener = mockIpcMain.getListener('agent:send');
+    expect(listener).toBeDefined();
+    const send = vi.fn();
+
+    await listener?.(
+      { sender: { send } },
+      {
+        threadId: 'thread-1',
+        requestId: 'req-1',
+        message: 'first call',
+        context: { cwd: tmpRoot },
+      },
+    );
+
+    const prompt = '@agent review please run @skill build';
+    await listener?.(
+      { sender: { send } },
+      {
+        threadId: 'thread-1',
+        requestId: 'req-2',
+        message: prompt,
+        context: { cwd: tmpRoot },
+      },
+    );
+
+    expect(getThreadLockCountForTests()).toBe(0);
+    expect(createSession).toHaveBeenCalledWith(expect.objectContaining({
+      workingDirectory: tmpRoot,
+      configDir: tmpRoot,
+      skillDirectories: [githubSkillDir, dotCopilotSkillDir],
+    }));
+    expect(resumeSession).toHaveBeenCalledWith(
+      'session-1',
+      expect.objectContaining({
+        workingDirectory: tmpRoot,
+        configDir: tmpRoot,
+        skillDirectories: [githubSkillDir, dotCopilotSkillDir],
+      }),
+    );
+    expect(resumeSendAndWait).toHaveBeenCalledWith({ prompt }, 2147483647);
+
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
   it('rejects malformed agent:send payloads with a structured stream error', async () => {
     const mockIpcMain = createMockIpcMain();
     vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
