@@ -22,6 +22,12 @@ process.on('unhandledRejection', (reason: unknown) => {
 
 let mainWindow: BrowserWindow | null = null;
 
+function getMainWebContents(): Electron.WebContents | null {
+  if (!mainWindow || mainWindow.isDestroyed()) return null;
+  if (mainWindow.webContents.isDestroyed()) return null;
+  return mainWindow.webContents;
+}
+
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 1400,
@@ -52,9 +58,12 @@ function createWindow() {
   Menu.setApplicationMenu(null);
 
   // Expose screenshot helper via IPC for testing
+  ipcMain.removeHandler('test:screenshot');
   ipcMain.handle('test:screenshot', async (_event, name: string) => {
     try {
-      const image = await mainWindow!.webContents.capturePage();
+      const webContents = getMainWebContents();
+      if (!webContents) return { ok: false, error: 'Main window unavailable' };
+      const image = await webContents.capturePage();
       const dir = path.join(__dirname, '..', '..', 'test-screenshots');
       if (!require('fs').existsSync(dir)) require('fs').mkdirSync(dir, { recursive: true });
       require('fs').writeFileSync(path.join(dir, `${name}.png`), image.toPNG());
@@ -65,8 +74,11 @@ function createWindow() {
   });
 
   // Expose executeJavaScript helper
+  ipcMain.removeHandler('test:exec');
   ipcMain.handle('test:exec', async (_event, js: string) => {
-    return mainWindow!.webContents.executeJavaScript(js);
+    const webContents = getMainWebContents();
+    if (!webContents) return { ok: false, error: 'Main window unavailable' };
+    return webContents.executeJavaScript(js);
   });
 
   mainWindow.on('closed', () => {

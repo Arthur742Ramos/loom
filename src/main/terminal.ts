@@ -26,6 +26,13 @@ export function setupTerminalHandlers(ptyOverride?: any) {
   ipcMain.handle('terminal:create', (_event, threadId: string, cwd: string) => {
     if (!pty) return { error: 'node-pty not available' };
 
+    // Kill any existing terminal for this thread to prevent orphaned processes.
+    const existing = terminals.get(threadId);
+    if (existing) {
+      try { existing.kill(); } catch {}
+      terminals.delete(threadId);
+    }
+
     const shell = os.platform() === 'win32' ? 'powershell.exe' : (process.env.SHELL || '/bin/bash');
 
     // Sanitize environment — strip sensitive variables before passing to child shell.
@@ -37,13 +44,18 @@ export function setupTerminalHandlers(ptyOverride?: any) {
       }
     }
 
-    const term = pty.spawn(shell, [], {
-      name: 'xterm-256color',
-      cols: 120,
-      rows: 30,
-      cwd,
-      env: safeEnv,
-    });
+    let term: any;
+    try {
+      term = pty.spawn(shell, [], {
+        name: 'xterm-256color',
+        cols: 120,
+        rows: 30,
+        cwd,
+        env: safeEnv,
+      });
+    } catch (err: any) {
+      return { error: err?.message || String(err) };
+    }
 
     terminals.set(threadId, term);
 

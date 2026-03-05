@@ -23,6 +23,9 @@ export function createMockIpcMain() {
       listeners.get(channel)?.delete(listener);
       onceListeners.get(channel)?.delete(listener);
     }),
+    removeHandler: vi.fn((channel: string) => {
+      handlers.delete(channel);
+    }),
   };
 
   const invoke = async (channel: string, ...args: any[]) => {
@@ -59,6 +62,7 @@ export function createMockIpcMain() {
     ipcMain.on.mockClear();
     ipcMain.once.mockClear();
     ipcMain.removeListener.mockClear();
+    ipcMain.removeHandler.mockClear();
   };
 
   return { ipcMain, handlers, listeners, onceListeners, invoke, emit, getListener, reset };
