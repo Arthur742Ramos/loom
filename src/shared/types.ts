@@ -26,6 +26,8 @@ export const IPC = {
   AGENT_LIST_SKILLS: 'agent:list-skills',
   AGENT_LIST_AGENTS: 'agent:list-agents',
   AGENT_LIST_PROJECT_MCP: 'agent:list-project-mcp',
+  AGENT_PERMISSION_REQUEST: 'agent:permission-request',
+  AGENT_USER_INPUT_REQUEST: 'agent:user-input-request',
 
   // Auth
   AUTH_LOGIN: 'auth:login',
@@ -41,4 +43,38 @@ export const IPC = {
   WINDOW_MINIMIZE: 'window:minimize',
   WINDOW_MAXIMIZE: 'window:maximize',
   WINDOW_CLOSE: 'window:close',
+
+  // Updater
+  UPDATER_CHECK: 'updater:check',
+  UPDATER_INSTALL: 'updater:install',
+  UPDATER_STATUS: 'updater:status',
+
+  // Test hooks
+  TEST_SCREENSHOT: 'test:screenshot',
+  TEST_EXEC: 'test:exec',
 } as const;
+
+export interface DiffLine {
+  type: 'add' | 'del' | 'ctx';
+  oldLine: number | null;
+  newLine: number | null;
+  content: string;
+}
+
+export interface DiffHunk {
+  oldStart: number;
+  oldCount: number;
+  newStart: number;
+  newCount: number;
+  header: string;
+  lines: DiffLine[];
+}
+
+export interface DiffFile {
+  path: string;
+  oldPath?: string;
+  status: 'added' | 'modified' | 'deleted' | 'renamed';
+  hunks: DiffHunk[];
+  additions: number;
+  deletions: number;
+}

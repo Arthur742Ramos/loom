@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
 import * as fs from 'fs';
+import { DiffFile, DiffHunk } from '../shared/types';
 
 const gitInstances = new Map<string, SimpleGit>();
 const GIT_INSTANCE_MAX = 20;
@@ -16,30 +17,8 @@ function evictGitInstances() {
   }
 }
 
-export interface DiffLine {
-  type: 'add' | 'del' | 'ctx';
-  oldLine: number | null;
-  newLine: number | null;
-  content: string;
-}
-
-export interface DiffHunk {
-  oldStart: number;
-  oldCount: number;
-  newStart: number;
-  newCount: number;
-  header: string;
-  lines: DiffLine[];
-}
-
-export interface DiffFile {
-  path: string;
-  oldPath?: string;
-  status: 'added' | 'modified' | 'deleted' | 'renamed';
-  hunks: DiffHunk[];
-  additions: number;
-  deletions: number;
-}
+const toErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 export function parseDiff(raw: string): DiffFile[] {
   const files: DiffFile[] = [];
@@ -142,8 +121,8 @@ export function setupGitHandlers() {
         ahead: status.ahead,
         behind: status.behind,
       };
-    } catch (err: any) {
-      return { error: err.message };
+    } catch (error: unknown) {
+      return { error: toErrorMessage(error) };
     }
   });
 
@@ -152,8 +131,8 @@ export function setupGitHandlers() {
       const git = getGit(projectPath);
       const raw = staged ? await git.diff(['--staged']) : await git.diff();
       return { diff: raw, files: parseDiff(raw) };
-    } catch (err: any) {
-      return { error: err.message };
+    } catch (error: unknown) {
+      return { error: toErrorMessage(error) };
     }
   });
 
@@ -162,8 +141,8 @@ export function setupGitHandlers() {
       const git = getGit(projectPath);
       await git.add(files);
       return { success: true };
-    } catch (err: any) {
-      return { error: err.message };
+    } catch (error: unknown) {
+      return { error: toErrorMessage(error) };
     }
   });
 
@@ -172,8 +151,8 @@ export function setupGitHandlers() {
       const git = getGit(projectPath);
       const result = await git.commit(message);
       return { hash: result.commit, summary: result.summary };
-    } catch (err: any) {
-      return { error: err.message };
+    } catch (error: unknown) {
+      return { error: toErrorMessage(error) };
     }
   });
 
@@ -192,8 +171,8 @@ export function setupGitHandlers() {
 
       await git.raw(['worktree', 'add', '-b', branchName, worktreePath]);
       return { worktreePath, branchName };
-    } catch (err: any) {
-      return { error: err.message };
+    } catch (error: unknown) {
+      return { error: toErrorMessage(error) };
     }
   });
 
@@ -202,8 +181,8 @@ export function setupGitHandlers() {
       const git = getGit(projectPath);
       await git.raw(['worktree', 'remove', worktreePath, '--force']);
       return { success: true };
-    } catch (err: any) {
-      return { error: err.message };
+    } catch (error: unknown) {
+      return { error: toErrorMessage(error) };
     }
   });
 }

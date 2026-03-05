@@ -1,17 +1,43 @@
 import { app, ipcMain } from 'electron';
 import * as os from 'os';
 
+interface PtyTerminal {
+  pid: number;
+  onData: (listener: (data: string) => void) => void;
+  onExit: (listener: () => void) => void;
+  write: (data: string) => void;
+  resize: (cols: number, rows: number) => void;
+  kill: () => void;
+}
+
+interface PtyModule {
+  spawn: (
+    shell: string,
+    args: string[],
+    options: {
+      name: string;
+      cols: number;
+      rows: number;
+      cwd: string;
+      env: Record<string, string>;
+    },
+  ) => PtyTerminal;
+}
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 // node-pty is loaded dynamically to avoid build issues
-function loadPty(): any {
+function loadPty(): PtyModule | null {
   try {
-    return require('node-pty');
+    return require('node-pty') as PtyModule;
   } catch {
     console.warn('node-pty not available — terminal disabled');
     return null;
   }
 }
 
-const terminals = new Map<string, any>();
+const terminals = new Map<string, PtyTerminal>();
 
 // Kill all terminals on app exit to prevent orphaned shell processes.
 app.on('before-quit', () => {
@@ -21,7 +47,7 @@ app.on('before-quit', () => {
   }
 });
 
-export function setupTerminalHandlers(ptyOverride?: any) {
+export function setupTerminalHandlers(ptyOverride?: PtyModule | null) {
   const pty = ptyOverride !== undefined ? ptyOverride : loadPty();
   ipcMain.handle('terminal:create', (_event, threadId: string, cwd: string) => {
     if (!pty) return { error: 'node-pty not available' };
@@ -44,7 +70,7 @@ export function setupTerminalHandlers(ptyOverride?: any) {
       }
     }
 
-    let term: any;
+    let term: PtyTerminal;
     try {
       term = pty.spawn(shell, [], {
         name: 'xterm-256color',
@@ -53,8 +79,8 @@ export function setupTerminalHandlers(ptyOverride?: any) {
         cwd,
         env: safeEnv,
       });
-    } catch (err: any) {
-      return { error: err?.message || String(err) };
+    } catch (error: unknown) {
+      return { error: getErrorMessage(error) };
     }
 
     terminals.set(threadId, term);

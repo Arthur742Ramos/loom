@@ -1,5 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import * as path from 'path';
+import * as fs from 'fs';
 import { setupGitHandlers } from './git';
 import { setupTerminalHandlers } from './terminal';
 import { setupAgentHandlers } from './agent';
@@ -21,6 +22,9 @@ process.on('unhandledRejection', (reason: unknown) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
 
 function getMainWebContents(): Electron.WebContents | null {
   if (!mainWindow || mainWindow.isDestroyed()) return null;
@@ -65,13 +69,13 @@ function createWindow() {
       if (!webContents) return { ok: false, error: 'Main window unavailable' };
       const image = await webContents.capturePage();
       const dir = path.join(__dirname, '..', '..', 'test-screenshots');
-      if (!require('fs').existsSync(dir)) require('fs').mkdirSync(dir, { recursive: true });
-      require('fs').writeFileSync(path.join(dir, `${name}.png`), image.toPNG());
-      return { ok: true, path: path.join(dir, `${name}.png`) };
-    } catch (e: any) {
-      return { ok: false, error: e.message };
-    }
-  });
+       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+       fs.writeFileSync(path.join(dir, `${name}.png`), image.toPNG());
+       return { ok: true, path: path.join(dir, `${name}.png`) };
+     } catch (error: unknown) {
+       return { ok: false, error: getErrorMessage(error) };
+     }
+   });
 
   // Expose executeJavaScript helper
   ipcMain.removeHandler('test:exec');

@@ -75,6 +75,11 @@ export interface McpServerConfig {
   timeout?: number;
 }
 
+interface ListModelsResult {
+  success: boolean;
+  models: ModelInfo[];
+}
+
 interface AppState {
   // Auth
   githubUser: GitHubUser | null;
@@ -191,7 +196,7 @@ const appStore = create<AppState>()(
         const requestId = ++fetchModelsRequestId;
         set({ modelsLoading: true });
         try {
-          const result = await api.invoke('agent:list-models');
+          const result = await api.invoke<ListModelsResult>('agent:list-models');
           // Only apply if this is still the latest request.
           if (requestId !== fetchModelsRequestId) return;
           if (result.success && result.models.length > 0) {
@@ -474,7 +479,7 @@ const appStore = create<AppState>()(
 
 // Expose store for testing/debugging (development and explicit test mode)
 if (process.env.NODE_ENV !== 'production' || window.electronAPI?.isTestMode === true) {
-  (window as any).__appStore = appStore;
+  window.__appStore = appStore;
 }
 
 export const useAppStore = appStore;
