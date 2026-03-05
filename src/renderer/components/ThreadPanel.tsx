@@ -168,6 +168,7 @@ export const ThreadPanel: React.FC = () => {
   const [titleDraft, setTitleDraft] = useState('');
   const [expandedThinkingByMessage, setExpandedThinkingByMessage] = useState<Record<string, boolean>>({});
   const [expandedFullThinkingByMessage, setExpandedFullThinkingByMessage] = useState<Record<string, boolean>>({});
+  const [expandedToolCallsByMessage, setExpandedToolCallsByMessage] = useState<Record<string, boolean>>({});
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -568,34 +569,81 @@ export const ThreadPanel: React.FC = () => {
                               <span className="truncate">{agentStatus}</span>
                             </div>
                           )}
-                          {msg.toolCalls && msg.toolCalls.length > 0 && (
-                            <div className="space-y-1">
-                              {msg.toolCalls.map((toolCall) => (
-                                <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
-                                  <div className="flex items-center gap-2">
-                                    {toolCall.status === 'running' ? (
-                                      <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                                    ) : toolCall.status === 'error' ? (
-                                      <span className="text-destructive">✕</span>
-                                    ) : (
-                                      <Check className="w-3 h-3 shrink-0 text-emerald-600" />
-                                    )}
+                          {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
+                            const running = msg.toolCalls.filter((tc) => tc.status === 'running');
+                            const errored = msg.toolCalls.filter((tc) => tc.status === 'error');
+                            const done = msg.toolCalls.filter((tc) => tc.status === 'done');
+                            const isToolsExpanded = Boolean(expandedToolCallsByMessage[msg.id]);
+
+                            // Build grouped summary for completed calls (e.g. "view ×12, grep ×3")
+                            const doneCounts = new Map<string, number>();
+                            for (const tc of done) {
+                              doneCounts.set(tc.toolName, (doneCounts.get(tc.toolName) || 0) + 1);
+                            }
+                            const doneSummary = [...doneCounts.entries()]
+                              .map(([name, count]) => count > 1 ? `${name} ×${count}` : name)
+                              .join(', ');
+
+                            return (
+                              <div className="space-y-1">
+                                {/* Running tool calls — always visible */}
+                                {running.map((toolCall) => (
+                                  <div key={toolCall.id} className="text-[11px] text-muted-foreground/80 flex items-center gap-2">
+                                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
                                     <span className="truncate">{toolCall.toolName}</span>
                                   </div>
-                                  {showToolOutputDetails && toolCall.result && (
-                                    <div className="pl-5 mt-0.5 text-muted-foreground/70 whitespace-pre-wrap break-words">
-                                      {toolCall.result}
+                                ))}
+                                {/* Errored tool calls — always visible */}
+                                {errored.map((toolCall) => (
+                                  <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-destructive">✕</span>
+                                      <span className="truncate">{toolCall.toolName}</span>
                                     </div>
-                                  )}
-                                  {toolCall.error && (
-                                    <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
-                                      {toolCall.error}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                            </div>
-                          )}
+                                    {toolCall.error && (
+                                      <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
+                                        {toolCall.error}
+                                      </div>
+                                    )}
+                                  </div>
+                                ))}
+                                {/* Completed tool calls — collapsed summary */}
+                                {done.length > 0 && (
+                                  <div>
+                                    <button
+                                      type="button"
+                                      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+                                      onClick={() => setExpandedToolCallsByMessage((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
+                                    >
+                                      <ChevronDown className={cn('w-3 h-3 shrink-0 transition-transform', !isToolsExpanded && '-rotate-90')} />
+                                      <Check className="w-3 h-3 shrink-0 text-emerald-600" />
+                                      <span>{done.length} tool call{done.length !== 1 ? 's' : ''}</span>
+                                      {!isToolsExpanded && doneSummary && (
+                                        <span className="text-muted-foreground/50 truncate max-w-[200px]">{doneSummary}</span>
+                                      )}
+                                    </button>
+                                    {isToolsExpanded && (
+                                      <div className="ml-5 mt-1 space-y-0.5">
+                                        {done.map((toolCall) => (
+                                          <div key={toolCall.id} className="text-[11px] text-muted-foreground/60">
+                                            <div className="flex items-center gap-2">
+                                              <Check className="w-3 h-3 shrink-0 text-emerald-600/60" />
+                                              <span className="truncate">{toolCall.toolName}</span>
+                                            </div>
+                                            {showToolOutputDetails && toolCall.result && (
+                                              <div className="pl-5 mt-0.5 text-muted-foreground/50 whitespace-pre-wrap break-words">
+                                                {toolCall.result}
+                                              </div>
+                                            )}
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </div>
                       )}
                       {msg.role === 'assistant' && msg.content && msg.status !== 'streaming' ? (

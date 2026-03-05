@@ -82,8 +82,17 @@ describe('ThreadPanel', () => {
     expect(
       thinkingBlock.compareDocumentPosition(finalResponse) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeGreaterThan(0);
-    expect(screen.getByText('read_bash')).toBeInTheDocument();
-    expect(screen.getByText('Tool output')).toBeInTheDocument();
+    // Completed tool calls are collapsed by default — summary is visible
+    const toolSummary = screen.getByText(/1 tool call/);
+    expect(toolSummary).toBeInTheDocument();
+    // Expand to see individual tool call names
+    fireEvent.click(toolSummary);
+    await waitFor(() => expect(screen.getByText('read_bash')).toBeInTheDocument());
+    expect(screen.queryByText('Tool output')).not.toBeInTheDocument();
+    act(() => {
+      useAppStore.getState().setShowToolOutputDetails(true);
+    });
+    await waitFor(() => expect(screen.getByText('Tool output')).toBeInTheDocument());
     expect(useAppStore.getState().threads.find((thread) => thread.id === threadId)?.status).toBe('completed');
   });
 
