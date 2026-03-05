@@ -46,6 +46,12 @@ export interface ProjectEntry {
   name: string;
 }
 
+export interface McpServerConfig {
+  command: string;
+  args?: string[];
+  env?: Record<string, string>;
+}
+
 interface AppState {
   // Auth
   githubUser: GitHubUser | null;
@@ -83,6 +89,12 @@ interface AppState {
   permissionMode: 'ask' | 'auto' | 'deny';
   setPermissionMode: (mode: 'ask' | 'auto' | 'deny') => void;
 
+  // MCP
+  mcpServers: Record<string, McpServerConfig>;
+  addMcpServer: (name: string, config: McpServerConfig) => void;
+  updateMcpServer: (name: string, config: McpServerConfig) => void;
+  removeMcpServer: (name: string) => void;
+
   // UI
   sidebarCollapsed: boolean;
   toggleSidebar: () => void;
@@ -90,6 +102,10 @@ interface AppState {
   setActiveTab: (tab: 'chat' | 'diff' | 'terminal') => void;
   showSettings: boolean;
   setShowSettings: (show: boolean) => void;
+
+  // Theme
+  theme: 'light' | 'dark' | 'system';
+  setTheme: (theme: 'light' | 'dark' | 'system') => void;
 }
 
 let threadCounter = 0;
@@ -230,6 +246,19 @@ const appStore = create<AppState>()(
       permissionMode: 'ask' as const,
       setPermissionMode: (mode: 'ask' | 'auto' | 'deny') => set({ permissionMode: mode }),
 
+      // MCP
+      mcpServers: {} as Record<string, McpServerConfig>,
+      addMcpServer: (name, config) => set((s) => ({
+        mcpServers: { ...s.mcpServers, [name]: config },
+      })),
+      updateMcpServer: (name, config) => set((s) => ({
+        mcpServers: { ...s.mcpServers, [name]: config },
+      })),
+      removeMcpServer: (name) => set((s) => {
+        const { [name]: _, ...rest } = s.mcpServers;
+        return { mcpServers: rest };
+      }),
+
       // UI
       sidebarCollapsed: false,
       toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
@@ -237,6 +266,10 @@ const appStore = create<AppState>()(
       setActiveTab: (tab) => set({ activeTab: tab }),
       showSettings: false,
       setShowSettings: (show) => set({ showSettings: show }),
+
+      // Theme
+      theme: 'system',
+      setTheme: (theme) => set({ theme }),
     }),
     {
       name: 'loom-state',
@@ -250,6 +283,8 @@ const appStore = create<AppState>()(
         permissionMode: state.permissionMode,
         threads: state.threads,
         activeThreadId: state.activeThreadId,
+        mcpServers: state.mcpServers,
+        theme: state.theme,
       }),
     },
   ),

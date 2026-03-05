@@ -134,6 +134,7 @@ export const ThreadPanel: React.FC = () => {
   const setReasoningEffort = useAppStore((s) => s.setReasoningEffort);
   const permissionMode = useAppStore((s) => s.permissionMode);
   const setPermissionMode = useAppStore((s) => s.setPermissionMode);
+  const mcpServers = useAppStore((s) => s.mcpServers);
   const [input, setInput] = useState('');
   const [pendingPermission, setPendingPermission] = useState<{
     kind: string; toolName?: string; toolArgs?: any; replyChannel: string;
@@ -234,6 +235,7 @@ export const ThreadPanel: React.FC = () => {
         model: selectedModel,
         reasoningEffort,
         permissionMode,
+        mcpServers,
         context: { cwd: threadProjectPath },
       });
 

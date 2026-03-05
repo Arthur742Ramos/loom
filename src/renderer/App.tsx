@@ -1,13 +1,32 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { ThreadPanel } from './components/ThreadPanel';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { TooltipProvider } from './components/ui/tooltip';
+import { SettingsPanel } from './components/SettingsPanel';
 import { useAppStore } from './store/appStore';
 
 const App: React.FC = () => {
   const activeThreadId = useAppStore((s) => s.activeThreadId);
   const projectPath = useAppStore((s) => s.projectPath);
+  const theme = useAppStore((s) => s.theme);
+
+  useEffect(() => {
+    const apply = (resolved: 'light' | 'dark') => {
+      document.documentElement.setAttribute('data-theme', resolved);
+    };
+
+    if (theme !== 'system') {
+      apply(theme);
+      return;
+    }
+
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    apply(mq.matches ? 'dark' : 'light');
+    const handler = (e: MediaQueryListEvent) => apply(e.matches ? 'dark' : 'light');
+    mq.addEventListener('change', handler);
+    return () => mq.removeEventListener('change', handler);
+  }, [theme]);
 
   return (
     <TooltipProvider>
@@ -31,6 +50,7 @@ const App: React.FC = () => {
           </div>
         </main>
       </div>
+      <SettingsPanel />
     </TooltipProvider>
   );
 };

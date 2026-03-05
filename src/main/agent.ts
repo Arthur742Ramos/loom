@@ -33,6 +33,7 @@ interface AgentRequest {
   model?: string;
   reasoningEffort?: 'low' | 'medium' | 'high';
   permissionMode?: 'ask' | 'auto' | 'deny';
+  mcpServers?: Record<string, { command: string; args?: string[]; env?: Record<string, string> }>;
 }
 
 function findCopilotPath(): string {
@@ -150,6 +151,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     streaming: true,
     onPermissionRequest,
     onUserInputRequest,
+    mcpServers: request.mcpServers,
   };
 
   // Try to resume an existing session (preserves conversation history with a fresh connection).

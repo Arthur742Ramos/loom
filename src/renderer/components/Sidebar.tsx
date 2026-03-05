@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { useAppStore } from '../store/appStore';
+import { useAppStore, McpServerConfig } from '../store/appStore';
 import { Button } from './ui/button';
 import {Separator } from './ui/separator';
 import {
-  SquarePen, Clock, LayoutGrid, Folder, FolderPlus, ListFilter, FolderPlusIcon,
-  Clipboard, Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw,
+  SquarePen, LayoutGrid, Folder, FolderPlus, ListFilter, FolderPlusIcon,
+  Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw, Settings,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { LoomLogo } from './LoomIcon';
@@ -26,6 +26,13 @@ export const Sidebar: React.FC = () => {
   const setGitHubUser = useAppStore((s) => s.setGitHubUser);
   const fetchModels = useAppStore((s) => s.fetchModels);
   const [loginLoading, setLoginLoading] = useState(false);
+  const mcpServers = useAppStore((s) => s.mcpServers);
+  const addMcpServer = useAppStore((s) => s.addMcpServer);
+  const removeMcpServer = useAppStore((s) => s.removeMcpServer);
+  const [showMcp, setShowMcp] = useState(false);
+  const [mcpForm, setMcpForm] = useState({ name: '', command: '', args: '' });
+  const showSettings = useAppStore((s) => s.showSettings);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<{ name: string; path: string; description: string; category: string }[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -120,13 +127,6 @@ export const Sidebar: React.FC = () => {
 
       {/* Scrollable body: nav + skills + threads */}
       <div className="flex-1 min-h-0 overflow-y-auto">
-      {/* Clipboard icon */}
-      <div className="px-5 mb-4">
-        <button className="text-muted-foreground hover:text-foreground transition-colors">
-          <Clipboard className="w-5 h-5" strokeWidth={1.5} />
-        </button>
-      </div>
-
       {/* Nav items */}
       <nav className="px-3 space-y-0.5 mb-6">
         <button
@@ -136,10 +136,72 @@ export const Sidebar: React.FC = () => {
           <SquarePen className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           New thread
         </button>
-        <button className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors">
-          <Clock className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
-          Automations
+        <button
+          className={cn(
+            'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
+            showMcp && 'bg-secondary',
+          )}
+          onClick={() => setShowMcp(!showMcp)}
+        >
+          <Monitor className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
+          MCP Servers
         </button>
+        {showMcp && (
+          <div className="ml-4 mr-2 mb-1 mt-0.5 space-y-1.5">
+            {Object.entries(mcpServers).length === 0 && (
+              <p className="text-[11px] text-muted-foreground/60 py-1">No MCP servers configured.</p>
+            )}
+            {Object.entries(mcpServers).map(([name, config]) => (
+              <div key={name} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
+                <span className="text-green-500">●</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-foreground truncate">{name}</p>
+                  <p className="text-muted-foreground truncate font-mono text-[10px]">{config.command} {config.args?.join(' ') || ''}</p>
+                </div>
+                <button
+                  className="text-muted-foreground hover:text-destructive transition-colors shrink-0"
+                  onClick={(e) => { e.stopPropagation(); removeMcpServer(name); }}
+                >
+                  <Trash2 className="w-3 h-3" />
+                </button>
+              </div>
+            ))}
+            {/* Add server form */}
+            <div className="space-y-1 pt-1 border-t border-border/40">
+              <input
+                className="w-full px-2 py-1 text-[11px] bg-secondary/60 border rounded text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
+                placeholder="Server name"
+                value={mcpForm.name}
+                onChange={(e) => setMcpForm(f => ({ ...f, name: e.target.value }))}
+              />
+              <input
+                className="w-full px-2 py-1 text-[11px] bg-secondary/60 border rounded text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary font-mono"
+                placeholder="Command (e.g. npx -y @mcp/server)"
+                value={mcpForm.command}
+                onChange={(e) => setMcpForm(f => ({ ...f, command: e.target.value }))}
+              />
+              <input
+                className="w-full px-2 py-1 text-[11px] bg-secondary/60 border rounded text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary font-mono"
+                placeholder="Args (space-separated, optional)"
+                value={mcpForm.args}
+                onChange={(e) => setMcpForm(f => ({ ...f, args: e.target.value }))}
+              />
+              <button
+                className="w-full px-2 py-1.5 text-[11px] font-medium bg-primary text-primary-foreground rounded hover:opacity-90 transition-opacity disabled:opacity-50"
+                disabled={!mcpForm.name.trim() || !mcpForm.command.trim()}
+                onClick={() => {
+                  addMcpServer(mcpForm.name.trim(), {
+                    command: mcpForm.command.trim(),
+                    args: mcpForm.args.trim() ? mcpForm.args.trim().split(/\s+/) : undefined,
+                  });
+                  setMcpForm({ name: '', command: '', args: '' });
+                }}
+              >
+                Add Server
+              </button>
+            </div>
+          </div>
+        )}
         <button
           className={cn(
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
@@ -302,6 +364,16 @@ export const Sidebar: React.FC = () => {
         </button>
       </div>
       {/* end scrollable body */}
+      </div>
+      {/* Settings */}
+      <div className="px-3 mb-1 shrink-0">
+        <button
+          className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-secondary transition-colors"
+          onClick={() => setShowSettings(true)}
+        >
+          <Settings className="w-[18px] h-[18px]" strokeWidth={1.5} />
+          Settings
+        </button>
       </div>
       {/* Account */}
       <div className="px-3 pt-2 mt-auto border-t">
