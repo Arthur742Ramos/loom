@@ -16,6 +16,56 @@ import { TokenCounter } from './TokenCounter';
 const THINKING_SUMMARY_LIMIT = 60;
 const THINKING_PREVIEW_LIMIT = 500;
 
+type PendingPermissionRequest = {
+  kind: string;
+  replyChannel: string;
+  [key: string]: unknown;
+};
+
+type PendingUserInputRequest = {
+  question: string;
+  choices?: string[];
+  allowFreeform?: boolean;
+  replyChannel: string;
+};
+
+type AgentStreamPayload = {
+  type: string;
+  requestId?: string;
+  content?: unknown;
+  status?: unknown;
+  toolCallId?: unknown;
+  toolName?: unknown;
+  success?: unknown;
+  result?: unknown;
+  error?: unknown;
+  inputTokens?: unknown;
+  outputTokens?: unknown;
+  cacheReadTokens?: unknown;
+  cacheWriteTokens?: unknown;
+  totalTokens?: unknown;
+};
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null;
+
+const isPendingPermissionRequest = (value: unknown): value is PendingPermissionRequest =>
+  isPlainObject(value) && typeof value.kind === 'string' && typeof value.replyChannel === 'string';
+
+const isPendingUserInputRequest = (value: unknown): value is PendingUserInputRequest =>
+  isPlainObject(value) && typeof value.question === 'string' && typeof value.replyChannel === 'string';
+
+const toAgentStreamPayload = (value: unknown): AgentStreamPayload | null =>
+  isPlainObject(value) && typeof value.type === 'string'
+    ? value as AgentStreamPayload
+    : null;
+
+const formatAgentErrorContent = (value: unknown): string => {
+  const message = typeof value === 'string' ? value.trim() : '';
+  if (!message) return 'Error: Unknown agent error';
+  return message.startsWith('Error:') ? message : `Error: ${message}`;
+};
+
 const toTokenCount = (value: unknown): number => {
   const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
   if (!Number.isFinite(parsed) || parsed <= 0) return 0;
@@ -36,18 +86,6 @@ const previewThinking = (thinking: string, showFull: boolean): string => {
 };
 
 export const ThreadPanel: React.FC = () => {
-  type PendingPermissionRequest = {
-    kind: string;
-    replyChannel: string;
-    [key: string]: unknown;
-  };
-  type PendingUserInputRequest = {
-    question: string;
-    choices?: string[];
-    allowFreeform?: boolean;
-    replyChannel: string;
-  };
-
   const activeThreadId = useAppStore((s) => s.activeThreadId);
   const threads = useAppStore((s) => s.threads);
   const activeTab = useAppStore((s) => s.activeTab);
@@ -140,7 +178,8 @@ export const ThreadPanel: React.FC = () => {
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
-    const unsub = api.on('agent:permission-request', (threadId: string, data: any) => {
+    const unsub = api.on('agent:permission-request', (threadId: string, data: unknown) => {
+      if (!isPendingPermissionRequest(data)) return;
       setPendingPermissionByThread((prev) => ({ ...prev, [threadId]: data }));
     });
     return unsub;
@@ -161,7 +200,8 @@ export const ThreadPanel: React.FC = () => {
   useEffect(() => {
     const api = window.electronAPI;
     if (!api) return;
-    const unsub = api.on('agent:user-input-request', (threadId: string, data: any) => {
+    const unsub = api.on('agent:user-input-request', (threadId: string, data: unknown) => {
+      if (!isPendingUserInputRequest(data)) return;
       setPendingUserInputByThread((prev) => ({ ...prev, [threadId]: data }));
       setUserInputAnswerByThread((prev) => ({ ...prev, [threadId]: '' }));
     });
@@ -272,12 +312,14 @@ export const ThreadPanel: React.FC = () => {
         }
       };
 
-      const handler = (streamThreadId: string, data: any) => {
+      const handler = (streamThreadId: string, data: unknown) => {
+        const payload = toAgentStreamPayload(data);
+        if (!payload) return;
         if (streamThreadId !== threadId) return;
-        if (data?.requestId && data.requestId !== requestId) return;
+        if (payload.requestId && payload.requestId !== requestId) return;
         if (activeRequestIdByThreadRef.current[threadId] !== requestId) return;
 
-        if (data.type === 'turn_reset') {
+        if (payload.type === 'turn_reset') {
           // New assistant turn — replace accumulated content with fresh output.
           if (rafId !== null) {
             cancelAnimationFrame(rafId);
@@ -285,22 +327,23 @@ export const ThreadPanel: React.FC = () => {
           }
           chunkBuffer = '';
           updateMessage(threadId, assistantMsgId, { content: '' });
-        } else if (data.type === 'chunk') {
-          if (!data.content) return;
-          chunkBuffer += data.content;
+        } else if (payload.type === 'chunk') {
+          const content = typeof payload.content === 'string' ? payload.content : '';
+          if (!content) return;
+          chunkBuffer += content;
           if (rafId === null) {
             rafId = requestAnimationFrame(flushChunks);
           }
-        } else if (data.type === 'thinking') {
-          if (data.content) {
-            appendThinking(threadId, assistantMsgId, data.content);
+        } else if (payload.type === 'thinking') {
+          if (typeof payload.content === 'string' && payload.content.length > 0) {
+            appendThinking(threadId, assistantMsgId, payload.content);
           }
-        } else if (data.type === 'usage') {
-          const inputTokens = toTokenCount(data.inputTokens);
-          const outputTokens = toTokenCount(data.outputTokens);
-          const cacheReadTokens = toTokenCount(data.cacheReadTokens);
-          const cacheWriteTokens = toTokenCount(data.cacheWriteTokens);
-          const totalTokens = toTokenCount(data.totalTokens)
+        } else if (payload.type === 'usage') {
+          const inputTokens = toTokenCount(payload.inputTokens);
+          const outputTokens = toTokenCount(payload.outputTokens);
+          const cacheReadTokens = toTokenCount(payload.cacheReadTokens);
+          const cacheWriteTokens = toTokenCount(payload.cacheWriteTokens);
+          const totalTokens = toTokenCount(payload.totalTokens)
             || (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens);
 
           if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0 || cacheReadTokens > 0 || cacheWriteTokens > 0) {
@@ -312,21 +355,26 @@ export const ThreadPanel: React.FC = () => {
               totalTokens,
             });
           }
-        } else if (data.type === 'tool_start') {
-          const toolCallId = data.toolCallId || `tool-${crypto.randomUUID()}`;
+        } else if (payload.type === 'tool_start') {
+          const toolCallId = typeof payload.toolCallId === 'string' && payload.toolCallId.length > 0
+            ? payload.toolCallId
+            : `tool-${crypto.randomUUID()}`;
+          const toolName = typeof payload.toolName === 'string' && payload.toolName.length > 0
+            ? payload.toolName
+            : 'tool';
           runningToolCallIds.push(toolCallId);
           addToolCall(threadId, assistantMsgId, {
             id: toolCallId,
-            toolName: data.toolName || 'tool',
+            toolName,
             status: 'running',
           });
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: `Running ${data.toolName || 'tool'}` }));
-        } else if (data.type === 'tool_end') {
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: `Running ${toolName}` }));
+        } else if (payload.type === 'tool_end') {
           const resolvedToolCallId = (() => {
-            if (typeof data.toolCallId === 'string' && data.toolCallId.length > 0) {
-              const index = runningToolCallIds.indexOf(data.toolCallId);
+            if (typeof payload.toolCallId === 'string' && payload.toolCallId.length > 0) {
+              const index = runningToolCallIds.indexOf(payload.toolCallId);
               if (index >= 0) runningToolCallIds.splice(index, 1);
-              return data.toolCallId;
+              return payload.toolCallId;
             }
             const nextRunningToolCallId = runningToolCallIds.shift();
             if (nextRunningToolCallId) return nextRunningToolCallId;
@@ -348,27 +396,33 @@ export const ThreadPanel: React.FC = () => {
               threadId,
               assistantMsgId,
               resolvedToolCallId,
-              data.success === false || data.error ? 'error' : 'done',
+              payload.success === false || typeof payload.error === 'string' ? 'error' : 'done',
               {
-                result: typeof data.result === 'string' ? data.result : undefined,
-                error: typeof data.error === 'string' ? data.error : undefined,
+                result: typeof payload.result === 'string' ? payload.result : undefined,
+                error: typeof payload.error === 'string' ? payload.error : undefined,
               },
             );
           }
           setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
-        } else if (data.type === 'status') {
-          setAgentStatusMap((prev) => ({ ...prev, [threadId]: data.status || '' }));
-        } else if (data.type === 'done') {
+        } else if (payload.type === 'status') {
+          setAgentStatusMap((prev) => ({
+            ...prev,
+            [threadId]: typeof payload.status === 'string' ? payload.status : '',
+          }));
+        } else if (payload.type === 'done') {
           cleanup(true);
-          if (typeof data.content === 'string' && data.content.length > 0) {
-            updateMessage(threadId, assistantMsgId, { content: data.content });
+          if (typeof payload.content === 'string' && payload.content.length > 0) {
+            updateMessage(threadId, assistantMsgId, { content: payload.content });
           }
           updateMessage(threadId, assistantMsgId, { status: 'done' });
           updateThread(threadId, { status: 'completed' });
           setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
-        } else if (data.type === 'error') {
+        } else if (payload.type === 'error') {
           cleanup(true);
-          updateMessage(threadId, assistantMsgId, { status: 'error', content: `Error: ${data.content}` });
+          updateMessage(threadId, assistantMsgId, {
+            status: 'error',
+            content: formatAgentErrorContent(payload.content),
+          });
           updateThread(threadId, { status: 'error' });
           setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
         }

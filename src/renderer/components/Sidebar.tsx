@@ -32,8 +32,13 @@ interface AuthLoginResult {
   success: boolean;
   userCode?: string;
   verificationUri?: string;
+  error?: string;
 }
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+/** Runtime guard for auth payloads from IPC. */
 const isGitHubUser = (value: unknown): value is GitHubUser => (
   typeof value === 'object'
   && value !== null
@@ -45,6 +50,7 @@ const isGitHubUser = (value: unknown): value is GitHubUser => (
   )
 );
 
+/** Normalize skill/agent list results from IPC into render-safe entries. */
 const toMentionableEntries = (value: unknown): MentionableEntry[] => {
   if (!Array.isArray(value)) return [];
   return value.filter((entry): entry is MentionableEntry => (
@@ -56,6 +62,7 @@ const toMentionableEntries = (value: unknown): MentionableEntry[] => {
   ));
 };
 
+/** Normalize project MCP server payloads from IPC. */
 const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> => {
   if (!value || typeof value !== 'object') return {};
   const result: Record<string, ProjectMcpServer> = {};
@@ -165,7 +172,8 @@ export const Sidebar: React.FC = () => {
         return;
       }
       setSkills(toMentionableEntries(result));
-    } catch {
+    } catch (error: unknown) {
+      console.warn('Failed to load project skills:', getErrorMessage(error));
       if (
         !isMountedRef.current
         || requestId !== skillsRequestIdRef.current
@@ -196,7 +204,8 @@ export const Sidebar: React.FC = () => {
         return;
       }
       setAgents(toMentionableEntries(result));
-    } catch {
+    } catch (error: unknown) {
+      console.warn('Failed to load project agents:', getErrorMessage(error));
       if (
         !isMountedRef.current
         || requestId !== agentsRequestIdRef.current
@@ -226,7 +235,8 @@ export const Sidebar: React.FC = () => {
         return;
       }
       setProjectMcp(toProjectMcpServers(result));
-    } catch {
+    } catch (error: unknown) {
+      console.warn('Failed to load project MCP servers:', getErrorMessage(error));
       if (
         !isMountedRef.current
         || requestId !== projectMcpRequestIdRef.current
@@ -246,7 +256,9 @@ export const Sidebar: React.FC = () => {
         const name = selectedPath.split(/[/\\]/).pop() || selectedPath;
         setProject(selectedPath, name);
       }
-    } catch {}
+    } catch (error: unknown) {
+      console.warn('Failed to open project picker:', getErrorMessage(error));
+    }
   };
 
   const handleNewThread = (path?: string, name?: string) => {
@@ -272,7 +284,8 @@ export const Sidebar: React.FC = () => {
       } else {
         setGitHubUser(null);
       }
-    } catch {
+    } catch (error: unknown) {
+      console.warn('Failed to check auth status:', getErrorMessage(error));
       setGitHubUser(null);
     }
     setLoginLoading(false);
@@ -287,9 +300,13 @@ export const Sidebar: React.FC = () => {
       if (result.success && result.userCode && result.verificationUri) {
         setDeviceCode({ userCode: result.userCode, verificationUri: result.verificationUri });
       } else if (!result.success) {
+        if (result.error) {
+          console.warn('GitHub login request failed:', result.error);
+        }
         setLoginLoading(false);
       }
-    } catch {
+    } catch (error: unknown) {
+      console.warn('GitHub login request failed:', getErrorMessage(error));
       setLoginLoading(false);
     }
   };

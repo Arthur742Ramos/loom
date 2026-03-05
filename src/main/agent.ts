@@ -22,17 +22,58 @@ function inferProvider(modelId: string): string {
   return 'Other';
 }
 
-let CopilotClientClass: any = null;
-let clientPromise: Promise<any> | null = null;
+interface CopilotModelDescriptor {
+  id?: string;
+  name?: string;
+  supportedReasoningEfforts?: string[];
+}
+
+interface AgentStreamEvent {
+  type: string;
+  data?: Record<string, unknown>;
+}
+
+interface AgentSession {
+  sessionId: string;
+  on: (listener: (event: AgentStreamEvent) => void) => () => void;
+  sendAndWait: (
+    payload: { prompt: string },
+    timeoutMs: number,
+  ) => Promise<{ data?: { content?: unknown } } | undefined>;
+  abort: () => Promise<void>;
+}
+
+interface CopilotClient {
+  createSession: (config: Record<string, unknown>) => Promise<AgentSession>;
+  resumeSession: (sessionId: string, config: Record<string, unknown>) => Promise<AgentSession>;
+  listModels: () => Promise<CopilotModelDescriptor[]>;
+  start?: () => Promise<void>;
+  forceStop?: () => Promise<void>;
+  stop?: () => Promise<void>;
+  modelsCache?: unknown;
+}
+
+interface CopilotClientConstructor {
+  new (config: {
+    cliPath: string;
+    autoStart: boolean;
+    autoRestart: boolean;
+    logLevel: string;
+  }): CopilotClient;
+}
+
+let CopilotClientClass: CopilotClientConstructor | null = null;
+let clientPromise: Promise<CopilotClient> | null = null;
 
 // Cache session IDs (not objects) so sessions always use the current connection.
 const threadSessionIds = new Map<string, string>();
 // Track in-flight sessions for cancellation.
-const inFlightSessions = new Map<string, any>();
+const inFlightSessions = new Map<string, AgentSession>();
 const canceledThreads = new Set<string>();
 // Serialize per-thread requests — each thread gets a queue lock.
 const threadLocks = new Map<string, Promise<void>>();
 
+/** Test helper: report how many per-thread queue locks are currently active. */
 export function getThreadLockCountForTests(): number {
   return threadLocks.size;
 }
@@ -198,6 +239,7 @@ const pickTokenNumber = (source: Record<string, unknown>, keys: string[]): numbe
   return undefined;
 };
 
+/** Normalize usage payloads from differing SDK/provider token field names. */
 export function normalizeUsagePayload(rawData: unknown): StreamUsagePayload | null {
   if (!rawData || typeof rawData !== 'object') return null;
   const root = rawData as Record<string, unknown>;
@@ -258,6 +300,7 @@ const toStringRecord = (value: unknown): Record<string, string> | null => {
   return Object.fromEntries(entries) as Record<string, string>;
 };
 
+/** Validate and normalize a single MCP server config object. */
 export function normalizeMcpServerConfig(config: unknown): NormalizedMcpServerConfig | null {
   if (!isPlainObject(config)) return null;
 
@@ -295,6 +338,7 @@ export function normalizeMcpServerConfig(config: unknown): NormalizedMcpServerCo
   return result;
 }
 
+/** Resolve the most likely tool call ID for a completion event. */
 export function resolveRunningToolCallId(
   runningToolCallIds: string[],
   explicitToolCallId?: unknown,
@@ -308,17 +352,18 @@ export function resolveRunningToolCallId(
   return nextRunningId || '';
 }
 
+/** Await a renderer response on a dynamic reply channel with timeout fallback. */
 export function waitForIpcReply<T>(
   replyChannel: string,
   sendPrompt: () => void,
-  onReply: (...args: any[]) => T,
+  onReply: (...args: unknown[]) => T,
   onTimeout: () => T,
   timeoutMs = 120000,
 ): Promise<T> {
   return new Promise<T>((resolve) => {
     let settled = false;
     let timeoutHandle: NodeJS.Timeout | undefined;
-    let handler: ((_: unknown, ...args: any[]) => void) | undefined;
+    let handler: ((_: unknown, ...args: unknown[]) => void) | undefined;
 
     const finish = (value: T) => {
       if (settled) return;
@@ -333,7 +378,7 @@ export function waitForIpcReply<T>(
       resolve(value);
     };
 
-    handler = (_event: unknown, ...args: any[]) => {
+    handler = (_event: unknown, ...args: unknown[]) => {
       finish(onReply(...args));
     };
 
@@ -353,20 +398,32 @@ function sendStream(sender: Electron.WebContents, request: AgentRequest, payload
   );
 }
 
+const toScriptedEventList = (value: unknown): ScriptedTestEvent[] | null =>
+  Array.isArray(value) ? value as ScriptedTestEvent[] : null;
+
 function getScriptedTestEvents(request: AgentRequest): ScriptedTestEvent[] | null {
   const raw = process.env.LOOM_TEST_AGENT_SCRIPT || process.env.LOOM_TEST_AGENT_EVENTS;
   if (!raw) return null;
   try {
-    const parsed = JSON.parse(raw) as any;
-    if (Array.isArray(parsed)) return parsed;
-    if (Array.isArray(parsed?.events)) return parsed.events;
-    if (parsed?.byPrompt && Array.isArray(parsed.byPrompt[request.message])) {
-      return parsed.byPrompt[request.message];
+    const parsed: unknown = JSON.parse(raw);
+    const directEvents = toScriptedEventList(parsed);
+    if (directEvents) return directEvents;
+    if (!isPlainObject(parsed)) return null;
+
+    const nestedEvents = toScriptedEventList(parsed.events);
+    if (nestedEvents) return nestedEvents;
+
+    const byPrompt = isPlainObject(parsed.byPrompt) ? parsed.byPrompt : null;
+    if (byPrompt) {
+      const promptEvents = toScriptedEventList(byPrompt[request.message]);
+      if (promptEvents) return promptEvents;
     }
-    if (Array.isArray(parsed?.default)) return parsed.default;
-    if (parsed?.[request.message] && Array.isArray(parsed[request.message])) {
-      return parsed[request.message];
-    }
+
+    const defaultEvents = toScriptedEventList(parsed.default);
+    if (defaultEvents) return defaultEvents;
+
+    const keyedEvents = toScriptedEventList(parsed[request.message]);
+    if (keyedEvents) return keyedEvents;
   } catch {
     return null;
   }
@@ -377,6 +434,7 @@ const sleep = async (ms: number): Promise<void> => {
   await new Promise((resolve) => setTimeout(resolve, ms));
 };
 
+/** Find the Copilot CLI binary path, falling back to plain `copilot`. */
 export function findCopilotPath(): string {
   try {
     if (process.platform === 'win32') {
@@ -392,17 +450,18 @@ export function findCopilotPath(): string {
   }
 }
 
-async function loadClientClass(): Promise<any> {
+async function loadClientClass(): Promise<CopilotClientConstructor> {
   if (!CopilotClientClass) {
     // Keep as runtime import to avoid webpack static bundling issues with ESM-only package.
-    const dynamicImport = new Function('specifier', 'return import(specifier)');
+    const dynamicImport = new Function('specifier', 'return import(specifier)') as
+      (specifier: string) => Promise<{ CopilotClient: CopilotClientConstructor }>;
     const sdk = await dynamicImport('@github/copilot-sdk');
     CopilotClientClass = sdk.CopilotClient;
   }
   return CopilotClientClass;
 }
 
-async function getClient(): Promise<any> {
+async function getClient(): Promise<CopilotClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
       const CopilotClient = await loadClientClass();
@@ -417,7 +476,8 @@ async function getClient(): Promise<any> {
   return clientPromise;
 }
 
-export function setClientForTests(client: any | null): void {
+/** Inject or clear a mock client for unit tests. */
+export function setClientForTests(client: CopilotClient | null): void {
   clientPromise = client ? Promise.resolve(client) : null;
   if (!client) {
     CopilotClientClass = null;
@@ -454,6 +514,7 @@ export interface ProjectAgentConfig {
   prompt: string;
 }
 
+/** Load local markdown agents from .github/agents for prompt-time discovery. */
 export function loadAgentsFromProject(cwd?: string): ProjectAgentConfig[] {
   if (!cwd) return [];
   const agentDir = path.join(cwd, '.github', 'agents');
@@ -475,6 +536,7 @@ export function loadAgentsFromProject(cwd?: string): ProjectAgentConfig[] {
   } catch { return []; }
 }
 
+/** Load and normalize project MCP server definitions from supported config files. */
 export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpServerConfig> {
   if (!cwd) return {};
   const candidates = [
@@ -499,6 +561,7 @@ export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpSe
   return {};
 }
 
+/** Return all existing skill directories that should be passed to the SDK session config. */
 export function getProjectSkillDirectories(cwd?: string): string[] {
   if (!cwd) return [];
   const candidates = [
@@ -517,11 +580,15 @@ export function getProjectSkillDirectories(cwd?: string): string[] {
   });
 }
 
-async function getOrCreateSession(client: any, request: AgentRequest, sender: Electron.WebContents): Promise<any> {
+async function getOrCreateSession(
+  client: CopilotClient,
+  request: AgentRequest,
+  sender: Electron.WebContents,
+): Promise<AgentSession> {
   const permissionMode = request.permissionMode || 'ask';
 
   // Permission handler: auto-approve, deny, or prompt the user via IPC.
-  const onPermissionRequest = async (req: any) => {
+  const onPermissionRequest = async (req: Record<string, unknown>) => {
     if (permissionMode === 'auto') {
       return { kind: 'approved' };
     }
@@ -538,8 +605,8 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
           replyChannel,
         });
       },
-      (approved: boolean) =>
-        approved
+      (approved: unknown) =>
+        approved === true
           ? { kind: 'approved' }
           : { kind: 'denied-interactively-by-user' },
       () => ({ kind: 'denied-interactively-by-user' }),
@@ -548,7 +615,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
   };
 
   // User-input handler: forward ask_user requests to the renderer.
-  const onUserInputRequest = async (req: any) => {
+  const onUserInputRequest = async (req: Record<string, unknown>) => {
     const replyChannel = `agent:user-input-reply:${request.threadId}:${Date.now()}`;
     return waitForIpcReply(
       replyChannel,
@@ -560,7 +627,10 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
           replyChannel,
         });
       },
-      (answer: string) => ({ answer, wasFreeform: true }),
+      (answer: unknown) => ({
+        answer: typeof answer === 'string' ? answer : '',
+        wasFreeform: true,
+      }),
       () => ({ answer: '', wasFreeform: true }),
       120000,
     );
@@ -700,32 +770,33 @@ export function setupAgentHandlers() {
         const nextFallbackToolCallId = () => `tc-${++toolCallCounter}`;
         const runningToolCallIds: string[] = [];
         let currentMessageId: string | undefined;
-        unsubscribe = session.on((evt: any) => {
+        unsubscribe = session.on((evt: AgentStreamEvent) => {
+          const data = isPlainObject(evt.data) ? evt.data : {};
           if (evt.type === 'assistant.message_delta') {
             // Skip sub-agent responses — they belong to tool call output, not the main message.
-            if (evt.data?.parentToolCallId) return;
-            const content = evt.data?.deltaContent || evt.data?.content || '';
+            if (data.parentToolCallId) return;
+            const content = asOptionalString(data.deltaContent) || asOptionalString(data.content) || '';
             if (!content) return;
             // When a new assistant turn starts (new messageId), signal the
             // renderer to replace accumulated content instead of appending.
-            const msgId = evt.data?.messageId;
+            const msgId = asOptionalString(data.messageId);
             if (msgId && msgId !== currentMessageId) {
               currentMessageId = msgId;
               sendStream(event.sender, request, { type: 'turn_reset' });
             }
             sendStream(event.sender, request, { type: 'chunk', content });
           } else if (evt.type === 'assistant.reasoning') {
-            const content = evt.data?.content || '';
+            const content = asOptionalString(data.content) || '';
             if (content) {
               sendStream(event.sender, request, { type: 'thinking', content });
             }
           } else if (evt.type === 'assistant.reasoning_delta') {
-            const content = evt.data?.deltaContent || '';
+            const content = asOptionalString(data.deltaContent) || '';
             if (content) {
               sendStream(event.sender, request, { type: 'thinking', content });
             }
           } else if (evt.type === 'assistant.usage') {
-            const usage = normalizeUsagePayload(evt.data);
+            const usage = normalizeUsagePayload(data);
             if (usage) {
               sendStream(event.sender, request, {
                 type: 'usage',
@@ -734,49 +805,58 @@ export function setupAgentHandlers() {
             }
           } else if (evt.type === 'assistant.intent') {
             sendStream(event.sender, request, {
-              type: 'status', status: evt.data?.intent || 'Working...',
+              type: 'status',
+              status: asOptionalString(data.intent) || 'Working...',
             });
           } else if (evt.type === 'tool.execution_start') {
-            const toolCallId = evt.data?.toolCallId || nextFallbackToolCallId();
+            const toolCallId = asOptionalString(data.toolCallId) || nextFallbackToolCallId();
             runningToolCallIds.push(toolCallId);
             sendStream(event.sender, request, {
               type: 'tool_start',
               toolCallId,
-              toolName: evt.data?.toolName || 'tool',
+              toolName: asOptionalString(data.toolName) || 'tool',
             });
           } else if (evt.type === 'tool.execution_complete' || evt.type === 'tool.execution_end') {
-            const toolCallId = resolveRunningToolCallId(runningToolCallIds, evt.data?.toolCallId);
+            const toolCallId = resolveRunningToolCallId(runningToolCallIds, data.toolCallId);
+            const result = isPlainObject(data.result) ? data.result : {};
+            const error = isPlainObject(data.error) ? data.error : {};
             sendStream(event.sender, request, {
               type: 'tool_end',
               toolCallId,
-              success: evt.data?.success,
-              result: evt.data?.result?.detailedContent || evt.data?.result?.content,
-              error: evt.data?.error?.message,
+              success: data.success,
+              result: asOptionalString(result.detailedContent) || asOptionalString(result.content),
+              error: asOptionalString(error.message),
             });
           } else if (evt.type === 'skill.invoked') {
             sendStream(event.sender, request, {
-              type: 'status', status: `⚡ Skill: ${evt.data?.name || 'unknown'}`,
+              type: 'status',
+              status: `⚡ Skill: ${asOptionalString(data.name) || 'unknown'}`,
             });
           } else if (evt.type === 'subagent.started') {
-            const toolCallId = evt.data?.toolCallId || nextFallbackToolCallId();
+            const toolCallId = asOptionalString(data.toolCallId) || nextFallbackToolCallId();
             runningToolCallIds.push(toolCallId);
+            const subagentName = asOptionalString(data.agentDisplayName)
+              || asOptionalString(data.agentName)
+              || 'subagent';
             sendStream(event.sender, request, {
               type: 'tool_start',
               toolCallId,
-              toolName: `🤖 ${evt.data?.agentDisplayName || evt.data?.agentName || 'subagent'}`,
+              toolName: `🤖 ${subagentName}`,
             });
           } else if (evt.type === 'subagent.completed' || evt.type === 'subagent.failed') {
-            const toolCallId = resolveRunningToolCallId(runningToolCallIds, evt.data?.toolCallId);
+            const toolCallId = resolveRunningToolCallId(runningToolCallIds, data.toolCallId);
             sendStream(event.sender, request, {
               type: 'tool_end',
               toolCallId,
               success: evt.type === 'subagent.completed',
-              error: evt.type === 'subagent.failed' ? evt.data?.error || 'Subagent failed' : undefined,
+              error: evt.type === 'subagent.failed'
+                ? asOptionalString(data.error) || 'Subagent failed'
+                : undefined,
             });
           } else if (evt.type === 'session.error') {
             sendStream(event.sender, request, {
               type: 'error',
-              content: evt.data?.message || 'Unknown error',
+              content: asOptionalString(data.message) || 'Unknown error',
             });
           }
         });
@@ -838,16 +918,23 @@ export function setupAgentHandlers() {
       // Ensure the client connection is established (listModels doesn't auto-start).
       await client.start?.();
       // Clear the SDK's internal cache so we always fetch a fresh list.
-      (client as any).modelsCache = null;
+      client.modelsCache = null;
       const models = await client.listModels();
       return {
         success: true,
-        models: models.map((m: any) => ({
-          id: m.id || m.name,
-          label: m.name || m.id,
-          provider: inferProvider(m.id || m.name),
-          supportedReasoningEfforts: m.supportedReasoningEfforts || [],
-        })),
+        models: models.map((model) => {
+          const id = model.id || model.name || 'unknown-model';
+          const label = model.name || model.id || id;
+          const supportedReasoningEfforts = Array.isArray(model.supportedReasoningEfforts)
+            ? model.supportedReasoningEfforts.filter((entry): entry is string => typeof entry === 'string')
+            : [];
+          return {
+            id,
+            label,
+            provider: inferProvider(id),
+            supportedReasoningEfforts,
+          };
+        }),
       };
     } catch (err: unknown) {
       return { success: false, error: getErrorMessage(err) };

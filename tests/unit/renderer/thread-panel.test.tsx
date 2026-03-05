@@ -153,6 +153,34 @@ describe('ThreadPanel', () => {
     expect(screen.getByText((content) => content === longThinking)).toBeInTheDocument();
   });
 
+  it('shows a fallback error message when stream error content is missing', async () => {
+    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+
+    const input = screen.getByTestId('thread-input');
+    fireEvent.change(input, { target: { value: 'Trigger error fallback' } });
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    await waitFor(() =>
+      expect(ipcRenderer.send).toHaveBeenCalledWith(
+        'agent:send',
+        expect.objectContaining({
+          threadId,
+          requestId: expect.any(String),
+        }),
+      ),
+    );
+
+    const requestPayload = ipcRenderer.send.mock.calls.find((call) => call[0] === 'agent:send')?.[1];
+    const requestId = requestPayload?.requestId as string;
+
+    act(() => {
+      ipcRenderer.emit('agent:stream', threadId, { type: 'error', requestId });
+    });
+
+    await waitFor(() => expect(screen.getByText('Error: Unknown agent error')).toBeInTheDocument());
+    expect(useAppStore.getState().threads.find((thread) => thread.id === threadId)?.status).toBe('error');
+  });
+
   it('marks tool calls done even when tool_end omits toolCallId', async () => {
     render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
 

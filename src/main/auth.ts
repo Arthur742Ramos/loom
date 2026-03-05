@@ -13,8 +13,12 @@ interface GitHubUser {
   avatar_url: string;
 }
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
 // --- Token persistence via Electron safeStorage ---
 
+/** Resolve the on-disk token location used for persisted auth state. */
 function getTokenPath(): string {
   return path.join(app.getPath('userData'), '.loom-token');
 }
@@ -188,23 +192,34 @@ export function setupAuthHandlers() {
       });
 
       if (!codeResponse.ok) {
-        return { success: false, error: 'Failed to initiate GitHub login' };
+        return {
+          success: false,
+          error: `Failed to initiate GitHub login (HTTP ${codeResponse.status})`,
+        };
       }
 
-      const { device_code, user_code, verification_uri, expires_in, interval } =
-        await codeResponse.json();
+      const payload = await codeResponse.json() as Record<string, unknown>;
+      const deviceCode = typeof payload.device_code === 'string' ? payload.device_code : '';
+      const userCode = typeof payload.user_code === 'string' ? payload.user_code : '';
+      const verificationUri = typeof payload.verification_uri === 'string' ? payload.verification_uri : '';
+      const expiresIn = typeof payload.expires_in === 'number' ? payload.expires_in : 0;
+      const interval = typeof payload.interval === 'number' ? payload.interval : 0;
 
-      shell.openExternal(verification_uri);
-      pollForToken(_event.sender, device_code, interval, expires_in);
+      if (!deviceCode || !userCode || !verificationUri || expiresIn <= 0 || interval <= 0) {
+        return { success: false, error: 'GitHub login response was missing required device-flow fields' };
+      }
+
+      shell.openExternal(verificationUri);
+      pollForToken(_event.sender, deviceCode, interval, expiresIn);
 
       return {
         success: true,
-        userCode: user_code,
-        verificationUri: verification_uri,
-        expiresIn: expires_in,
+        userCode,
+        verificationUri,
+        expiresIn,
       };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err: unknown) {
+      return { success: false, error: `GitHub login failed: ${getErrorMessage(err)}` };
     }
   });
 
