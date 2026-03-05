@@ -62,6 +62,8 @@ jobs:
             echo "$missing_libs"
             exit 1
           fi
+        env:
+          ELECTRON_DISABLE_SANDBOX: '1'
 
       - name: Run test suite
         run: npm run test:ci
