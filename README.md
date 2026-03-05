@@ -3,7 +3,13 @@
 ![Tests](https://github.com/Arthur742Ramos/loom/actions/workflows/tests.yml/badge.svg)
 ![Release](https://github.com/Arthur742Ramos/loom/actions/workflows/release.yml/badge.svg)
 ![Version](https://img.shields.io/github/v/tag/Arthur742Ramos/loom?label=version)
-![Platform](https://img.shields.io/badge/platform-Electron-47848F)
+![Copilot SDK](https://img.shields.io/badge/powered_by-GitHub_Copilot_SDK-000?logo=githubcopilot)
+![Electron](https://img.shields.io/badge/Electron-47848F?logo=electron&logoColor=white)
+![React](https://img.shields.io/badge/React-61DAFB?logo=react&logoColor=black)
+![TypeScript](https://img.shields.io/badge/TypeScript-3178C6?logo=typescript&logoColor=white)
+![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-06B6D4?logo=tailwindcss&logoColor=white)
+![Vitest](https://img.shields.io/badge/tested_with-Vitest-6E9F18?logo=vitest&logoColor=white)
+![Playwright](https://img.shields.io/badge/e2e-Playwright-2EAD33?logo=playwright&logoColor=white)
 
 > An agentic desktop coding app powered by GitHub Copilot, built for thread-based multi-agent workflows.
 
