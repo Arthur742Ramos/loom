@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { createGitFixtureRepo, GitFixtureRepo } from '../utils/createGitFixtureRepo';
 import { launchLoomApp, LoomAppContext, setProjectInStore } from '../utils/electronApp';
 
-let fixtureRepo: GitFixtureRepo;
-let appContext: LoomAppContext;
+let fixtureRepo: GitFixtureRepo | null = null;
+let appContext: LoomAppContext | null = null;
 
 test.beforeEach(async () => {
   fixtureRepo = createGitFixtureRepo();
@@ -12,13 +12,16 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-  fixtureRepo.cleanup();
+  fixtureRepo?.cleanup();
+  fixtureRepo = null;
   if (appContext) {
     await appContext.electronApp.close();
+    appContext = null;
   }
 });
 
 test('opens app, creates thread, sends prompt, and receives response', async () => {
+  if (!appContext) throw new Error('App context not initialized');
   const { page } = appContext;
 
   await page.getByTestId('new-thread-button').click();

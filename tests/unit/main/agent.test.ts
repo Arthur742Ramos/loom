@@ -144,6 +144,11 @@ describe('src/main/agent.ts', () => {
           remotePlain: {
             url: 'http://localhost:3000/mcp',
           },
+          remoteAuth: {
+            url: 'https://cloudbuildmcp.azurewebsites.net/cloudbuildmcp/',
+            type: 'http',
+            headers: { Authorization: 'Bearer test-token' },
+          },
           badArgs: {
             command: 'npx',
             args: [1, 2, 3],
@@ -151,6 +156,10 @@ describe('src/main/agent.ts', () => {
           badEnv: {
             command: 'npx',
             env: { PORT: 8080 },
+          },
+          badHeaders: {
+            url: 'https://example-mcp.example.com/sse',
+            headers: { Authorization: 123 },
           },
           noCommandOrUrl: {
             args: ['a'],
@@ -165,7 +174,7 @@ describe('src/main/agent.ts', () => {
 
     const { loadMcpFromProject } = await import('../../../src/main/agent');
     const config = loadMcpFromProject(tmpRoot);
-    expect(Object.keys(config).sort()).toEqual(['browser', 'fs', 'remote', 'remotePlain']);
+    expect(Object.keys(config).sort()).toEqual(['browser', 'fs', 'remote', 'remoteAuth', 'remotePlain']);
     expect(config.fs).toEqual({
       command: 'npx',
       args: ['-y', '@modelcontextprotocol/server-filesystem'],
@@ -184,6 +193,12 @@ describe('src/main/agent.ts', () => {
     });
     expect(config.remotePlain).toEqual({
       url: 'http://localhost:3000/mcp',
+      tools: ['*'],
+    });
+    expect(config.remoteAuth).toEqual({
+      url: 'https://cloudbuildmcp.azurewebsites.net/cloudbuildmcp/',
+      type: 'http',
+      headers: { Authorization: 'Bearer test-token' },
       tools: ['*'],
     });
 

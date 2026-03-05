@@ -11,8 +11,8 @@ type FixtureMessage = {
   status: 'pending' | 'streaming' | 'done' | 'error';
 };
 
-let fixtureRepo: GitFixtureRepo;
-let appContext: LoomAppContext;
+let fixtureRepo: GitFixtureRepo | null = null;
+let appContext: LoomAppContext | null = null;
 
 test.beforeEach(async () => {
   fixtureRepo = createGitFixtureRepo();
@@ -42,11 +42,16 @@ test.beforeEach(async () => {
 });
 
 test.afterEach(async () => {
-  fixtureRepo.cleanup();
-  await appContext.electronApp.close();
+  fixtureRepo?.cleanup();
+  fixtureRepo = null;
+  if (appContext) {
+    await appContext.electronApp.close();
+    appContext = null;
+  }
 });
 
 test('matches key UI screenshots', async () => {
+  if (!appContext) throw new Error('App context not initialized');
   const { page } = appContext;
   await expect(page.getByTestId('login-button')).toContainText('Sign in with GitHub');
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());

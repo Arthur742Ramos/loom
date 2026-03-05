@@ -13,7 +13,7 @@ export interface LaunchLoomOptions {
 export async function launchLoomApp(options: LaunchLoomOptions = {}): Promise<LoomAppContext> {
   const appPath = path.resolve(process.cwd(), 'dist/main/main.js');
   const electronApp = await electron.launch({
-    args: [appPath],
+    args: [appPath, '--force-device-scale-factor=1'],
     env: {
       ...process.env,
       LOOM_TEST_MODE: '1',
@@ -23,6 +23,11 @@ export async function launchLoomApp(options: LaunchLoomOptions = {}): Promise<Lo
   });
 
   const page = await electronApp.firstWindow();
+  await electronApp.evaluate(async ({ BrowserWindow }) => {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) win.setContentSize(1400, 900);
+  });
+  await page.setViewportSize({ width: 1400, height: 900 });
   await page.waitForSelector('[data-testid="sidebar"]');
 
   return { electronApp, page };

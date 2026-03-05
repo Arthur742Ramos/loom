@@ -56,6 +56,18 @@ npm install
 npm run build
 ```
 
+## 🚀 Quick Start
+
+```bash
+gh auth login          # authenticate with GitHub
+npm install            # install dependencies
+npm run dev            # start webpack watchers
+# in another terminal:
+npm start              # launch Loom
+```
+
+Open a project folder, create a thread, and start prompting agents.
+
 ## ▶️ Getting Started
 
 ```bash

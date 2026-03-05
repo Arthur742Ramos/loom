@@ -83,6 +83,7 @@ interface NormalizedMcpServerConfig {
   url?: string;
   args?: string[];
   env?: Record<string, string>;
+  headers?: Record<string, string>;
   tools: string[];
   type?: string;
   timeout?: number;
@@ -99,7 +100,7 @@ interface AgentRequest {
   model?: string;
   reasoningEffort?: 'low' | 'medium' | 'high' | 'xhigh';
   permissionMode?: 'ask' | 'auto' | 'deny';
-  mcpServers?: Record<string, { command?: string; url?: string; args?: string[]; env?: Record<string, string> }>;
+  mcpServers?: Record<string, { command?: string; url?: string; args?: string[]; env?: Record<string, string>; headers?: Record<string, string> }>;
   customAgents?: { name: string; displayName?: string; description?: string; prompt: string; tools?: string[] | null }[];
 }
 
@@ -322,10 +323,14 @@ export function normalizeMcpServerConfig(config: unknown): NormalizedMcpServerCo
   const env = config.env === undefined ? undefined : toStringRecord(config.env);
   if (config.env !== undefined && !env) return null;
 
+  const headers = config.headers === undefined ? undefined : toStringRecord(config.headers);
+  if (config.headers !== undefined && !headers) return null;
+
   const result: NormalizedMcpServerConfig = {
     ...(command ? { command, args } : { url }),
     tools,
     ...(env ? { env } : {}),
+    ...(headers ? { headers } : {}),
   };
 
   if (config.type !== undefined) {
