@@ -120,6 +120,32 @@ function loadAgentsFromProject(cwd?: string): any[] {
   } catch { return []; }
 }
 
+function loadMcpFromProject(cwd?: string): Record<string, any> {
+  if (!cwd) return {};
+  const candidates = [
+    path.join(cwd, '.vscode', 'mcp.json'),
+    path.join(cwd, '.github', 'copilot', 'mcp.json'),
+  ];
+  for (const file of candidates) {
+    try {
+      if (!fs.existsSync(file)) continue;
+      const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      // .vscode/mcp.json uses { servers: { name: config } }
+      const servers = raw.servers || raw;
+      const result: Record<string, any> = {};
+      for (const [name, cfg] of Object.entries(servers as Record<string, any>)) {
+        result[name] = {
+          command: cfg.command,
+          args: cfg.args,
+          env: cfg.env,
+        };
+      }
+      return result;
+    } catch { /* skip invalid files */ }
+  }
+  return {};
+}
+
 async function getOrCreateSession(client: any, request: AgentRequest, sender: Electron.WebContents): Promise<any> {
   const permissionMode = request.permissionMode || 'ask';
 
@@ -166,6 +192,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
   };
 
   const projectAgents = loadAgentsFromProject(request.context?.cwd);
+  const projectMcp = loadMcpFromProject(request.context?.cwd);
   const baseConfig = {
     model: request.model,
     reasoningEffort: request.reasoningEffort as any,
@@ -174,7 +201,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     streaming: true,
     onPermissionRequest,
     onUserInputRequest,
-    mcpServers: request.mcpServers,
+    mcpServers: { ...projectMcp, ...(request.mcpServers || {}) },
     customAgents: [...projectAgents, ...(request.customAgents || [])],
   };
 
@@ -420,6 +447,11 @@ export function setupAgentHandlers() {
       }
     } catch {}
     return results;
+  });
+
+  // List MCP servers discovered from project config files.
+  ipcMain.handle('agent:list-project-mcp', async (_event, projectPath: string) => {
+    return loadMcpFromProject(projectPath);
   });
 }
 

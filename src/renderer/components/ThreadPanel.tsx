@@ -539,23 +539,32 @@ export const ThreadPanel: React.FC = () => {
             <div className="flex items-center justify-between mt-1.5 px-1">
               <div className="flex items-center gap-2">
                 <ModelPicker value={selectedModel} onChange={setSelectedModel} />
-                <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
-                  {(['low', 'medium', 'high', 'xhigh'] as const).map((level) => (
-                    <button
-                      key={level}
-                      onClick={() => setReasoningEffort(level)}
-                      className={cn(
-                        'px-1.5 py-0.5 rounded text-[10px] font-medium transition-all',
-                        reasoningEffort === level
-                          ? 'bg-card text-foreground shadow-sm'
-                          : 'text-muted-foreground hover:text-foreground',
-                      )}
-                      title={`Reasoning effort: ${level}`}
-                    >
-                      {level === 'low' ? '⚡' : level === 'medium' ? '⚖️' : level === 'high' ? '🧠' : '💎'}
-                    </button>
-                  ))}
-                </div>
+                {(() => {
+                  const currentModel = useAppStore.getState().availableModels.find(m => m.id === selectedModel);
+                  const supported = currentModel?.supportedReasoningEfforts;
+                  const levels = (['low', 'medium', 'high', 'xhigh'] as const).filter(
+                    l => !supported || supported.length === 0 || supported.includes(l)
+                  );
+                  return levels.length > 0 ? (
+                    <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
+                      {levels.map((level) => (
+                        <button
+                          key={level}
+                          onClick={() => setReasoningEffort(level)}
+                          className={cn(
+                            'px-1.5 py-0.5 rounded text-[10px] font-medium transition-all',
+                            reasoningEffort === level
+                              ? 'bg-card text-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                          title={`Reasoning effort: ${level}`}
+                        >
+                          {level === 'low' ? '⚡' : level === 'medium' ? '⚖️' : level === 'high' ? '🧠' : '💎'}
+                        </button>
+                      ))}
+                    </div>
+                  ) : null;
+                })()}
                 {/* Permission mode */}
                 <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
                   {(['auto', 'ask', 'deny'] as const).map((mode) => (

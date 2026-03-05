@@ -31,6 +31,7 @@ export const Sidebar: React.FC = () => {
   const removeMcpServer = useAppStore((s) => s.removeMcpServer);
   const [showMcp, setShowMcp] = useState(false);
   const [mcpForm, setMcpForm] = useState({ name: '', command: '', args: '' });
+  const [projectMcp, setProjectMcp] = useState<Record<string, any>>({});
   const showSettings = useAppStore((s) => s.showSettings);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
   const [showSkills, setShowSkills] = useState(false);
@@ -155,15 +156,35 @@ export const Sidebar: React.FC = () => {
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
             showMcp && 'bg-secondary',
           )}
-          onClick={() => setShowMcp(!showMcp)}
+          onClick={() => {
+            setShowMcp(!showMcp);
+            if (!showMcp && projectPath) {
+              const { ipcRenderer } = (window as any).require('electron');
+              ipcRenderer.invoke('agent:list-project-mcp', projectPath).then((r: any) => setProjectMcp(r || {}));
+            }
+          }}
         >
           <Monitor className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           MCP Servers
         </button>
         {showMcp && (
           <div className="ml-4 mr-2 mb-1 mt-0.5 space-y-1.5">
-            {Object.entries(mcpServers).length === 0 && (
-              <p className="text-[11px] text-muted-foreground/60 py-1">No MCP servers configured.</p>
+            {/* Project-discovered MCP servers */}
+            {Object.keys(projectMcp).length > 0 && (
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-1">From project</p>
+            )}
+            {Object.entries(projectMcp).map(([name, config]: [string, any]) => (
+              <div key={`proj-${name}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
+                <span className="text-blue-400">●</span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-medium text-foreground truncate">{name}</p>
+                  <p className="text-muted-foreground truncate font-mono text-[10px]">{config.command} {config.args?.join(' ') || ''}</p>
+                </div>
+              </div>
+            ))}
+            {/* User-configured MCP servers */}
+            {Object.keys(mcpServers).length > 0 && (
+              <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-1">Custom</p>
             )}
             {Object.entries(mcpServers).map(([name, config]) => (
               <div key={name} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
