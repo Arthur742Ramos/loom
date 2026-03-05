@@ -666,13 +666,13 @@ export const ThreadPanel: React.FC = () => {
 
           {/* Input */}
           <div className="px-8 pb-6 pt-3">
-            <div className="flex items-end bg-secondary/60 border rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
+            <div className="flex items-center bg-secondary/60 border rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
               <textarea
                 data-testid="thread-input"
                 data-loom-chat-input="true"
                 ref={inputRef}
                 aria-label="Chat message input"
-                className="flex-1 px-3.5 py-2.5 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
+                className="flex-1 px-3.5 py-2 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
                 placeholder="Ask Copilot to work on something..."
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
@@ -684,7 +684,7 @@ export const ThreadPanel: React.FC = () => {
                   data-testid="thread-stop"
                   size="icon"
                   variant="destructive"
-                  className="h-9 w-9 rounded-[10px] shrink-0"
+                  className="h-9 w-9 rounded-[10px] shrink-0 self-end"
                   onClick={handleCancel}
                 >
                   <Square className="w-4 h-4" />
@@ -693,7 +693,7 @@ export const ThreadPanel: React.FC = () => {
                 <Button
                   data-testid="thread-send"
                   size="icon"
-                  className="h-9 w-9 rounded-[10px] shrink-0"
+                  className="h-9 w-9 rounded-[10px] shrink-0 self-end"
                   onClick={handleSend}
                   disabled={!input.trim()}
                 >
