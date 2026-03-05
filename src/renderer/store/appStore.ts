@@ -25,7 +25,16 @@ export interface Thread {
   status: 'idle' | 'running' | 'completed' | 'error';
   createdAt: number;
   messages: ChatMessage[];
+  tokenUsage?: ThreadTokenUsage;
   worktreePath?: string;
+}
+
+export interface ThreadTokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
 }
 
 export interface ToolCallEntry {
@@ -93,6 +102,7 @@ interface AppState {
   createThread: (title: string, mode: 'local' | 'worktree') => string;
   removeThread: (id: string) => void;
   updateThread: (id: string, updates: Partial<Thread>) => void;
+  addThreadTokenUsage: (threadId: string, usage: ThreadTokenUsage) => void;
 
   // Messages
   addMessage: (threadId: string, message: ChatMessage) => void;
@@ -140,6 +150,13 @@ interface AppState {
 
 let threadCounter = 0;
 let fetchModelsRequestId = 0;
+const emptyThreadTokenUsage = (): ThreadTokenUsage => ({
+  inputTokens: 0,
+  outputTokens: 0,
+  cacheReadTokens: 0,
+  cacheWriteTokens: 0,
+  totalTokens: 0,
+});
 
 const appStore = create<AppState>()(
   persist(
@@ -240,6 +257,24 @@ const appStore = create<AppState>()(
       updateThread: (id, updates) =>
         set((s) => ({
           threads: s.threads.map((t) => (t.id === id ? { ...t, ...updates } : t)),
+        })),
+
+      addThreadTokenUsage: (threadId, usage) =>
+        set((s) => ({
+          threads: s.threads.map((t) => {
+            if (t.id !== threadId) return t;
+            const previous = t.tokenUsage ?? emptyThreadTokenUsage();
+            return {
+              ...t,
+              tokenUsage: {
+                inputTokens: previous.inputTokens + usage.inputTokens,
+                outputTokens: previous.outputTokens + usage.outputTokens,
+                cacheReadTokens: previous.cacheReadTokens + usage.cacheReadTokens,
+                cacheWriteTokens: previous.cacheWriteTokens + usage.cacheWriteTokens,
+                totalTokens: previous.totalTokens + usage.totalTokens,
+              },
+            };
+          }),
         })),
 
       // Messages
@@ -437,8 +472,8 @@ const appStore = create<AppState>()(
   ),
 );
 
-// Expose store for testing/debugging (development only)
-if (process.env.NODE_ENV !== 'production') {
+// Expose store for testing/debugging (development and explicit test mode)
+if (process.env.NODE_ENV !== 'production' || window.electronAPI?.isTestMode === true) {
   (window as any).__appStore = appStore;
 }
 

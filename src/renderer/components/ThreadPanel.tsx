@@ -13,9 +13,16 @@ import { LoomIcon } from './LoomIcon';
 import { ModelPicker } from './ModelPicker';
 import { DiffView } from './DiffView';
 import { TerminalView } from './TerminalView';
+import { TokenCounter } from './TokenCounter';
 
 const THINKING_SUMMARY_LIMIT = 60;
 const THINKING_PREVIEW_LIMIT = 500;
+
+const toTokenCount = (value: unknown): number => {
+  const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : NaN;
+  if (!Number.isFinite(parsed) || parsed <= 0) return 0;
+  return Math.round(parsed);
+};
 
 const summarizeThinking = (thinking: string): string => {
   const normalized = thinking.replace(/\s+/g, ' ').trim();
@@ -31,6 +38,18 @@ const previewThinking = (thinking: string, showFull: boolean): string => {
 };
 
 export const ThreadPanel: React.FC = () => {
+  type PendingPermissionRequest = {
+    kind: string;
+    replyChannel: string;
+    [key: string]: unknown;
+  };
+  type PendingUserInputRequest = {
+    question: string;
+    choices?: string[];
+    allowFreeform?: boolean;
+    replyChannel: string;
+  };
+
   const activeThreadId = useAppStore((s) => s.activeThreadId);
   const threads = useAppStore((s) => s.threads);
   const activeTab = useAppStore((s) => s.activeTab);
@@ -42,6 +61,7 @@ export const ThreadPanel: React.FC = () => {
   const appendThinking = useAppStore((s) => s.appendThinking);
   const addToolCall = useAppStore((s) => s.addToolCall);
   const updateToolCallStatus = useAppStore((s) => s.updateToolCallStatus);
+  const addThreadTokenUsage = useAppStore((s) => s.addThreadTokenUsage);
   const projectPath = useAppStore((s) => s.projectPath);
   const selectedModel = useAppStore((s) => s.selectedModel);
   const setSelectedModel = useAppStore((s) => s.setSelectedModel);
@@ -56,13 +76,11 @@ export const ThreadPanel: React.FC = () => {
   const pendingInputInsertion = useAppStore((s) => s.pendingInputInsertion);
   const consumeInputInsertion = useAppStore((s) => s.consumeInputInsertion);
   const [input, setInput] = useState('');
-  const [pendingPermission, setPendingPermission] = useState<{
-    kind: string; toolName?: string; toolArgs?: any; replyChannel: string;
-  } | null>(null);
-  const [pendingUserInput, setPendingUserInput] = useState<{
-    question: string; choices?: string[]; allowFreeform?: boolean; replyChannel: string;
-  } | null>(null);
-  const [userInputAnswer, setUserInputAnswer] = useState('');
+  const [pendingPermissionByThread, setPendingPermissionByThread] =
+    useState<Record<string, PendingPermissionRequest>>({});
+  const [pendingUserInputByThread, setPendingUserInputByThread] =
+    useState<Record<string, PendingUserInputRequest>>({});
+  const [userInputAnswerByThread, setUserInputAnswerByThread] = useState<Record<string, string>>({});
   const [agentStatusMap, setAgentStatusMap] = useState<Record<string, string>>({});
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
@@ -78,6 +96,9 @@ export const ThreadPanel: React.FC = () => {
   const thread = threads.find((t) => t.id === activeThreadId);
   const threadProjectPath = thread?.projectPath || projectPath || '';
   const agentStatus = (activeThreadId && agentStatusMap[activeThreadId]) || '';
+  const pendingPermission = activeThreadId ? pendingPermissionByThread[activeThreadId] || null : null;
+  const pendingUserInput = activeThreadId ? pendingUserInputByThread[activeThreadId] || null : null;
+  const userInputAnswer = activeThreadId ? userInputAnswerByThread[activeThreadId] || '' : '';
 
   const scrollToBottom = () => {
     const el = scrollContainerRef.current;
@@ -112,16 +133,20 @@ export const ThreadPanel: React.FC = () => {
     const api = window.electronAPI;
     if (!api) return;
     const unsub = api.on('agent:permission-request', (threadId: string, data: any) => {
-      if (threadId !== activeThreadId) return;
-      setPendingPermission(data);
+      setPendingPermissionByThread((prev) => ({ ...prev, [threadId]: data }));
     });
     return unsub;
-  }, [activeThreadId]);
+  }, []);
 
   const respondToPermission = (approved: boolean) => {
-    if (!pendingPermission) return;
-    window.electronAPI?.sendReply(pendingPermission.replyChannel, approved);
-    setPendingPermission(null);
+    if (!activeThreadId) return;
+    const pending = pendingPermissionByThread[activeThreadId];
+    if (!pending) return;
+    window.electronAPI?.sendReply(pending.replyChannel, approved);
+    setPendingPermissionByThread((prev) => {
+      const { [activeThreadId]: _ignored, ...rest } = prev;
+      return rest;
+    });
   };
 
   // Listen for user-input requests (ask_user tool) from the agent backend.
@@ -129,18 +154,25 @@ export const ThreadPanel: React.FC = () => {
     const api = window.electronAPI;
     if (!api) return;
     const unsub = api.on('agent:user-input-request', (threadId: string, data: any) => {
-      if (threadId !== activeThreadId) return;
-      setPendingUserInput(data);
-      setUserInputAnswer('');
+      setPendingUserInputByThread((prev) => ({ ...prev, [threadId]: data }));
+      setUserInputAnswerByThread((prev) => ({ ...prev, [threadId]: '' }));
     });
     return unsub;
-  }, [activeThreadId]);
+  }, []);
 
   const respondToUserInput = (answer: string) => {
-    if (!pendingUserInput) return;
-    window.electronAPI?.sendReply(pendingUserInput.replyChannel, answer);
-    setPendingUserInput(null);
-    setUserInputAnswer('');
+    if (!activeThreadId) return;
+    const pending = pendingUserInputByThread[activeThreadId];
+    if (!pending) return;
+    window.electronAPI?.sendReply(pending.replyChannel, answer);
+    setPendingUserInputByThread((prev) => {
+      const { [activeThreadId]: _ignored, ...rest } = prev;
+      return rest;
+    });
+    setUserInputAnswerByThread((prev) => {
+      const { [activeThreadId]: _ignored, ...rest } = prev;
+      return rest;
+    });
   };
 
   const toggleThinking = (messageId: string) => {
@@ -202,6 +234,7 @@ export const ThreadPanel: React.FC = () => {
       let rafId: number | null = null;
       let cleanedUp = false;
       let unsub: (() => void) | undefined;
+      const runningToolCallIds: string[] = [];
 
       const flushChunks = () => {
         rafId = null;
@@ -254,8 +287,26 @@ export const ThreadPanel: React.FC = () => {
           if (data.content) {
             appendThinking(threadId, assistantMsgId, data.content);
           }
+        } else if (data.type === 'usage') {
+          const inputTokens = toTokenCount(data.inputTokens);
+          const outputTokens = toTokenCount(data.outputTokens);
+          const cacheReadTokens = toTokenCount(data.cacheReadTokens);
+          const cacheWriteTokens = toTokenCount(data.cacheWriteTokens);
+          const totalTokens = toTokenCount(data.totalTokens)
+            || (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens);
+
+          if (totalTokens > 0 || inputTokens > 0 || outputTokens > 0 || cacheReadTokens > 0 || cacheWriteTokens > 0) {
+            addThreadTokenUsage(threadId, {
+              inputTokens,
+              outputTokens,
+              cacheReadTokens,
+              cacheWriteTokens,
+              totalTokens,
+            });
+          }
         } else if (data.type === 'tool_start') {
           const toolCallId = data.toolCallId || `tool-${crypto.randomUUID()}`;
+          runningToolCallIds.push(toolCallId);
           addToolCall(threadId, assistantMsgId, {
             id: toolCallId,
             toolName: data.toolName || 'tool',
@@ -263,11 +314,32 @@ export const ThreadPanel: React.FC = () => {
           });
           setAgentStatusMap((prev) => ({ ...prev, [threadId]: `Running ${data.toolName || 'tool'}` }));
         } else if (data.type === 'tool_end') {
-          if (data.toolCallId) {
+          const resolvedToolCallId = (() => {
+            if (typeof data.toolCallId === 'string' && data.toolCallId.length > 0) {
+              const index = runningToolCallIds.indexOf(data.toolCallId);
+              if (index >= 0) runningToolCallIds.splice(index, 1);
+              return data.toolCallId;
+            }
+            const nextRunningToolCallId = runningToolCallIds.shift();
+            if (nextRunningToolCallId) return nextRunningToolCallId;
+            const message = useAppStore
+              .getState()
+              .threads
+              .find((t) => t.id === threadId)
+              ?.messages
+              .find((m) => m.id === assistantMsgId);
+            const toolCalls = message?.toolCalls || [];
+            for (let i = toolCalls.length - 1; i >= 0; i -= 1) {
+              if (toolCalls[i].status === 'running') return toolCalls[i].id;
+            }
+            return '';
+          })();
+
+          if (resolvedToolCallId) {
             updateToolCallStatus(
               threadId,
               assistantMsgId,
-              data.toolCallId,
+              resolvedToolCallId,
               data.success === false || data.error ? 'error' : 'done',
               {
                 result: typeof data.result === 'string' ? data.result : undefined,
@@ -357,37 +429,42 @@ export const ThreadPanel: React.FC = () => {
             title="Double-click to rename"
           >{thread.title}</h2>
         )}
-        <div className="flex gap-0.5 bg-secondary rounded-lg p-1" role="tablist" aria-label="Thread view tabs">
-          <button
-            data-testid="tab-chat"
-            role="tab"
-            aria-selected={activeTab === 'chat'}
-            className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
-              activeTab === 'chat' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
-            onClick={() => setActiveTab('chat')}
-          >
-            <MessageSquare className="w-3.5 h-3.5" /> Chat
-          </button>
-          <button
-            data-testid="tab-diff"
-            role="tab"
-            aria-selected={activeTab === 'diff'}
-            className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
-              activeTab === 'diff' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
-            onClick={() => setActiveTab('diff')}
-          >
-            <GitCompare className="w-3.5 h-3.5" /> Diff
-          </button>
-          <button
-            data-testid="tab-terminal"
-            role="tab"
-            aria-selected={activeTab === 'terminal'}
-            className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
-              activeTab === 'terminal' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
-            onClick={() => setActiveTab('terminal')}
-          >
-            <TerminalSquare className="w-3.5 h-3.5" /> Terminal
-          </button>
+        <div className="flex items-center gap-2">
+          {thread.tokenUsage && thread.tokenUsage.totalTokens > 0 && (
+            <TokenCounter usage={thread.tokenUsage} />
+          )}
+          <div className="flex gap-0.5 bg-secondary rounded-lg p-1" role="tablist" aria-label="Thread view tabs">
+            <button
+              data-testid="tab-chat"
+              role="tab"
+              aria-selected={activeTab === 'chat'}
+              className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
+                activeTab === 'chat' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+              onClick={() => setActiveTab('chat')}
+            >
+              <MessageSquare className="w-3.5 h-3.5" /> Chat
+            </button>
+            <button
+              data-testid="tab-diff"
+              role="tab"
+              aria-selected={activeTab === 'diff'}
+              className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
+                activeTab === 'diff' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+              onClick={() => setActiveTab('diff')}
+            >
+              <GitCompare className="w-3.5 h-3.5" /> Diff
+            </button>
+            <button
+              data-testid="tab-terminal"
+              role="tab"
+              aria-selected={activeTab === 'terminal'}
+              className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
+                activeTab === 'terminal' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
+              onClick={() => setActiveTab('terminal')}
+            >
+              <TerminalSquare className="w-3.5 h-3.5" /> Terminal
+            </button>
+          </div>
         </div>
       </div>
 
@@ -606,10 +683,11 @@ export const ThreadPanel: React.FC = () => {
                   Allow <span className="font-mono">{pendingPermission.kind}</span> access?
                 </p>
                 {(() => {
-                  const { kind, replyChannel, ...rest } = pendingPermission as any;
-                  const details = rest.toolName || rest.command || rest.path || rest.url;
+                  const { kind: _kind, replyChannel: _replyChannel, ...rest } = pendingPermission;
+                  const details = [rest.toolName, rest.command, rest.path, rest.url]
+                    .find((value): value is string => typeof value === 'string' && value.length > 0);
                   return details ? (
-                    <p className="text-[11px] text-muted-foreground mt-0.5 font-mono truncate">{String(details)}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 font-mono truncate">{details}</p>
                   ) : null;
                 })()}
               </div>
@@ -650,7 +728,10 @@ export const ThreadPanel: React.FC = () => {
                     className="flex-1 px-2.5 py-1.5 text-xs bg-card border border-border rounded-md outline-none focus:ring-1 focus:ring-ring text-foreground placeholder:text-muted-foreground"
                     placeholder="Type your answer..."
                     value={userInputAnswer}
-                    onChange={(e) => setUserInputAnswer(e.target.value)}
+                    onChange={(e) => {
+                      if (!activeThreadId) return;
+                      setUserInputAnswerByThread((prev) => ({ ...prev, [activeThreadId]: e.target.value }));
+                    }}
                     onKeyDown={(e) => { if (e.key === 'Enter' && userInputAnswer.trim()) respondToUserInput(userInputAnswer.trim()); }}
                     autoFocus
                   />

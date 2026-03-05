@@ -177,6 +177,55 @@ describe('appStore', () => {
     });
   });
 
+  describe('addThreadTokenUsage', () => {
+    it('accumulates per-thread token usage totals', () => {
+      useAppStore.getState().setProject('/tmp/proj', 'proj');
+      const threadId = useAppStore.getState().createThread('tokens', 'local');
+
+      useAppStore.getState().addThreadTokenUsage(threadId, {
+        inputTokens: 120,
+        outputTokens: 80,
+        cacheReadTokens: 40,
+        cacheWriteTokens: 10,
+        totalTokens: 250,
+      });
+      useAppStore.getState().addThreadTokenUsage(threadId, {
+        inputTokens: 30,
+        outputTokens: 20,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 50,
+      });
+
+      const thread = useAppStore.getState().threads.find((t) => t.id === threadId);
+      expect(thread?.tokenUsage).toEqual({
+        inputTokens: 150,
+        outputTokens: 100,
+        cacheReadTokens: 40,
+        cacheWriteTokens: 10,
+        totalTokens: 300,
+      });
+    });
+
+    it('keeps token usage isolated by thread', () => {
+      useAppStore.getState().setProject('/tmp/proj', 'proj');
+      const threadA = useAppStore.getState().createThread('A', 'local');
+      const threadB = useAppStore.getState().createThread('B', 'local');
+
+      useAppStore.getState().addThreadTokenUsage(threadA, {
+        inputTokens: 10,
+        outputTokens: 5,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        totalTokens: 15,
+      });
+
+      const state = useAppStore.getState();
+      expect(state.threads.find((t) => t.id === threadA)?.tokenUsage?.totalTokens).toBe(15);
+      expect(state.threads.find((t) => t.id === threadB)?.tokenUsage).toBeUndefined();
+    });
+  });
+
   // ─── fetchModels race condition ─────────────────────────────────
 
   describe('fetchModels', () => {

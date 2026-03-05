@@ -25,6 +25,19 @@ const canceledThreads = new Set<string>();
 // Serialize per-thread requests — each thread gets a queue lock.
 const threadLocks = new Map<string, Promise<void>>();
 
+export function getThreadLockCountForTests(): number {
+  return threadLocks.size;
+}
+
+interface NormalizedMcpServerConfig {
+  command: string;
+  args: string[];
+  env?: Record<string, string>;
+  tools: string[];
+  type?: string;
+  timeout?: number;
+}
+
 interface AgentRequest {
   threadId: string;
   requestId?: string;
@@ -43,7 +56,7 @@ interface AgentRequest {
 type StreamPayload = { type: string } & Record<string, unknown>;
 
 interface ScriptedTestEvent {
-  type: 'status' | 'thinking' | 'tool_start' | 'tool_end' | 'chunk' | 'done' | 'error';
+  type: 'status' | 'thinking' | 'tool_start' | 'tool_end' | 'chunk' | 'usage' | 'done' | 'error';
   status?: string;
   content?: string;
   toolCallId?: string;
@@ -51,7 +64,184 @@ interface ScriptedTestEvent {
   success?: boolean;
   result?: string;
   error?: string;
+  inputTokens?: number;
+  outputTokens?: number;
+  cacheReadTokens?: number;
+  cacheWriteTokens?: number;
+  totalTokens?: number;
   delayMs?: number;
+}
+
+interface StreamUsagePayload {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  totalTokens: number;
+}
+
+const toTokenNumber = (value: unknown): number | undefined => {
+  if (typeof value === 'number' && Number.isFinite(value) && value >= 0) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
+  }
+  return undefined;
+};
+
+const pickTokenNumber = (source: Record<string, unknown>, keys: string[]): number | undefined => {
+  for (const key of keys) {
+    const candidate = toTokenNumber(source[key]);
+    if (candidate !== undefined) return candidate;
+  }
+  return undefined;
+};
+
+export function normalizeUsagePayload(rawData: unknown): StreamUsagePayload | null {
+  if (!rawData || typeof rawData !== 'object') return null;
+  const root = rawData as Record<string, unknown>;
+  const nestedUsage = root.usage;
+  const source = nestedUsage && typeof nestedUsage === 'object'
+    ? nestedUsage as Record<string, unknown>
+    : root;
+
+  const inputRaw = pickTokenNumber(source, ['inputTokens', 'promptTokens', 'input_tokens', 'prompt_tokens']);
+  const outputRaw = pickTokenNumber(source, ['outputTokens', 'completionTokens', 'output_tokens', 'completion_tokens']);
+  const cacheReadRaw = pickTokenNumber(source, [
+    'cacheReadTokens',
+    'cacheReadInputTokens',
+    'cache_read_tokens',
+    'cache_read_input_tokens',
+  ]);
+  const cacheWriteRaw = pickTokenNumber(source, [
+    'cacheWriteTokens',
+    'cacheWriteInputTokens',
+    'cacheCreationInputTokens',
+    'cache_write_tokens',
+    'cache_creation_input_tokens',
+  ]);
+  const totalRaw = pickTokenNumber(source, ['totalTokens', 'totalTokenCount', 'total_tokens']);
+
+  if ([inputRaw, outputRaw, cacheReadRaw, cacheWriteRaw, totalRaw].every((v) => v === undefined)) {
+    return null;
+  }
+
+  const inputTokens = inputRaw ?? 0;
+  const outputTokens = outputRaw ?? 0;
+  const cacheReadTokens = cacheReadRaw ?? 0;
+  const cacheWriteTokens = cacheWriteRaw ?? 0;
+  const totalTokens = totalRaw ?? (inputTokens + outputTokens + cacheReadTokens + cacheWriteTokens);
+
+  return {
+    inputTokens,
+    outputTokens,
+    cacheReadTokens,
+    cacheWriteTokens,
+    totalTokens,
+  };
+}
+
+const isPlainObject = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const toStringArray = (value: unknown): string[] | null => {
+  if (!Array.isArray(value)) return null;
+  if (!value.every((entry) => typeof entry === 'string')) return null;
+  return [...value];
+};
+
+const toStringRecord = (value: unknown): Record<string, string> | null => {
+  if (!isPlainObject(value)) return null;
+  const entries = Object.entries(value);
+  if (!entries.every(([, v]) => typeof v === 'string')) return null;
+  return Object.fromEntries(entries) as Record<string, string>;
+};
+
+export function normalizeMcpServerConfig(config: unknown): NormalizedMcpServerConfig | null {
+  if (!isPlainObject(config)) return null;
+
+  const command = typeof config.command === 'string' ? config.command.trim() : '';
+  if (!command) return null;
+
+  const args = config.args === undefined ? [] : toStringArray(config.args);
+  if (!args) return null;
+
+  const tools = config.tools === undefined ? ['*'] : toStringArray(config.tools);
+  if (!tools) return null;
+
+  const env = config.env === undefined ? undefined : toStringRecord(config.env);
+  if (config.env !== undefined && !env) return null;
+
+  const result: NormalizedMcpServerConfig = {
+    command,
+    args,
+    tools,
+    ...(env ? { env } : {}),
+  };
+
+  if (config.type !== undefined) {
+    if (typeof config.type !== 'string') return null;
+    result.type = config.type;
+  }
+
+  if (config.timeout !== undefined) {
+    if (typeof config.timeout !== 'number' || !Number.isFinite(config.timeout) || config.timeout <= 0) {
+      return null;
+    }
+    result.timeout = config.timeout;
+  }
+
+  return result;
+}
+
+export function resolveRunningToolCallId(
+  runningToolCallIds: string[],
+  explicitToolCallId?: unknown,
+): string {
+  if (typeof explicitToolCallId === 'string' && explicitToolCallId.length > 0) {
+    const index = runningToolCallIds.indexOf(explicitToolCallId);
+    if (index >= 0) runningToolCallIds.splice(index, 1);
+    return explicitToolCallId;
+  }
+  const nextRunningId = runningToolCallIds.shift();
+  return nextRunningId || '';
+}
+
+export function waitForIpcReply<T>(
+  replyChannel: string,
+  sendPrompt: () => void,
+  onReply: (...args: any[]) => T,
+  onTimeout: () => T,
+  timeoutMs = 120000,
+): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    let timeoutHandle: NodeJS.Timeout | undefined;
+    let handler: ((_: unknown, ...args: any[]) => void) | undefined;
+
+    const finish = (value: T) => {
+      if (settled) return;
+      settled = true;
+      if (timeoutHandle) {
+        clearTimeout(timeoutHandle);
+        timeoutHandle = undefined;
+      }
+      if (handler) {
+        ipcMain.removeListener(replyChannel, handler);
+      }
+      resolve(value);
+    };
+
+    handler = (_event: unknown, ...args: any[]) => {
+      finish(onReply(...args));
+    };
+
+    ipcMain.once(replyChannel, handler);
+    sendPrompt();
+    timeoutHandle = setTimeout(() => {
+      finish(onTimeout());
+    }, timeoutMs);
+  });
 }
 
 function sendStream(sender: Electron.WebContents, request: AgentRequest, payload: StreamPayload): void {
@@ -132,6 +322,7 @@ async function resetClient(): Promise<void> {
   threadSessionIds.clear();
   inFlightSessions.clear();
   canceledThreads.clear();
+  threadLocks.clear();
   if (previousClientPromise) {
     try {
       const previousClient = await previousClientPromise;
@@ -179,17 +370,13 @@ export function loadMcpFromProject(cwd?: string): Record<string, any> {
     try {
       if (!fs.existsSync(file)) continue;
       const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
-      const servers = raw.servers || raw;
-      const result: Record<string, any> = {};
-      for (const [name, cfg] of Object.entries(servers as Record<string, any>)) {
-        // Pass through the full config — the SDK needs type, tools, command, args, env, etc.
-        result[name] = {
-          ...cfg,
-          // Ensure tools defaults to ["*"] if not specified (expose all tools).
-          tools: cfg.tools || ['*'],
-          // Ensure args is an array.
-          args: cfg.args || [],
-        };
+      const serversCandidate = isPlainObject(raw) && isPlainObject(raw.servers) ? raw.servers : raw;
+      if (!isPlainObject(serversCandidate)) return {};
+      const result: Record<string, NormalizedMcpServerConfig> = {};
+      for (const [name, cfg] of Object.entries(serversCandidate)) {
+        const normalized = normalizeMcpServerConfig(cfg);
+        if (!normalized) continue;
+        result[name] = normalized;
       }
       return result;
     } catch { /* skip invalid files */ }
@@ -209,55 +396,41 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
       return { kind: 'denied-by-rules' };
     }
     // Ask mode — send to renderer and await user decision.
-    return new Promise<any>((resolve) => {
-      let resolved = false;
-      const replyChannel = `agent:permission-reply:${request.threadId}:${Date.now()}`;
-      const handler = (_: any, approved: boolean) => {
-        if (resolved) return;
-        resolved = true;
-        resolve(approved
+    const replyChannel = `agent:permission-reply:${request.threadId}:${Date.now()}`;
+    return waitForIpcReply(
+      replyChannel,
+      () => {
+        sender.send('agent:permission-request', request.threadId, {
+          ...req,
+          replyChannel,
+        });
+      },
+      (approved: boolean) =>
+        approved
           ? { kind: 'approved' }
-          : { kind: 'denied-interactively-by-user' });
-      };
-      sender.send('agent:permission-request', request.threadId, {
-        ...req,
-        replyChannel,
-      });
-      ipcMain.once(replyChannel, handler);
-      // Auto-deny after 120s if user doesn't respond.
-      setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        ipcMain.removeListener(replyChannel, handler);
-        resolve({ kind: 'denied-interactively-by-user' });
-      }, 120000);
-    });
+          : { kind: 'denied-interactively-by-user' },
+      () => ({ kind: 'denied-interactively-by-user' }),
+      120000,
+    );
   };
 
   // User-input handler: forward ask_user requests to the renderer.
   const onUserInputRequest = async (req: any) => {
-    return new Promise<any>((resolve) => {
-      let resolved = false;
-      const replyChannel = `agent:user-input-reply:${request.threadId}:${Date.now()}`;
-      const handler = (_: any, answer: string) => {
-        if (resolved) return;
-        resolved = true;
-        resolve({ answer, wasFreeform: true });
-      };
-      sender.send('agent:user-input-request', request.threadId, {
-        question: req.question,
-        choices: req.choices,
-        allowFreeform: req.allowFreeform,
-        replyChannel,
-      });
-      ipcMain.once(replyChannel, handler);
-      setTimeout(() => {
-        if (resolved) return;
-        resolved = true;
-        ipcMain.removeListener(replyChannel, handler);
-        resolve({ answer: '', wasFreeform: true });
-      }, 120000);
-    });
+    const replyChannel = `agent:user-input-reply:${request.threadId}:${Date.now()}`;
+    return waitForIpcReply(
+      replyChannel,
+      () => {
+        sender.send('agent:user-input-request', request.threadId, {
+          question: req.question,
+          choices: req.choices,
+          allowFreeform: req.allowFreeform,
+          replyChannel,
+        });
+      },
+      (answer: string) => ({ answer, wasFreeform: true }),
+      () => ({ answer: '', wasFreeform: true }),
+      120000,
+    );
   };
 
   const projectAgents = loadAgentsFromProject(request.context?.cwd);
@@ -316,9 +489,15 @@ export function setupAgentHandlers() {
   ipcMain.on('agent:send', async (event, request: AgentRequest) => {
     // Serialize requests per thread to prevent concurrent execution races.
     const prevLock = threadLocks.get(request.threadId) || Promise.resolve();
-    let releaseLock: () => void;
+    let releaseLock: () => void = () => {};
     const lock = new Promise<void>((resolve) => { releaseLock = resolve; });
     threadLocks.set(request.threadId, lock);
+    const completeLock = () => {
+      if (threadLocks.get(request.threadId) === lock) {
+        threadLocks.delete(request.threadId);
+      }
+      releaseLock();
+    };
     await prevLock;
 
     if (process.env.LOOM_TEST_MODE === '1') {
@@ -343,7 +522,7 @@ export function setupAgentHandlers() {
         sendStream(event.sender, request, { type: 'chunk', content: mockContent });
         sendStream(event.sender, request, { type: 'done', content: mockContent });
       }
-      releaseLock!();
+      completeLock();
       return;
     }
 
@@ -360,6 +539,9 @@ export function setupAgentHandlers() {
             await runningSession.abort();
           } catch {
             // Ignore abort race errors.
+          } finally {
+            // Clear canceled flag so it doesn't leak into future requests.
+            canceledThreads.delete(request.threadId);
           }
         }
 
@@ -368,6 +550,7 @@ export function setupAgentHandlers() {
 
         let toolCallCounter = 0;
         const nextFallbackToolCallId = () => `tc-${++toolCallCounter}`;
+        const runningToolCallIds: string[] = [];
         let currentMessageId: string | undefined;
         unsubscribe = session.on((evt: any) => {
           if (evt.type === 'assistant.message_delta') {
@@ -393,19 +576,28 @@ export function setupAgentHandlers() {
             if (content) {
               sendStream(event.sender, request, { type: 'thinking', content });
             }
+          } else if (evt.type === 'assistant.usage') {
+            const usage = normalizeUsagePayload(evt.data);
+            if (usage) {
+              sendStream(event.sender, request, {
+                type: 'usage',
+                ...usage,
+              });
+            }
           } else if (evt.type === 'assistant.intent') {
             sendStream(event.sender, request, {
               type: 'status', status: evt.data?.intent || 'Working...',
             });
           } else if (evt.type === 'tool.execution_start') {
             const toolCallId = evt.data?.toolCallId || nextFallbackToolCallId();
+            runningToolCallIds.push(toolCallId);
             sendStream(event.sender, request, {
               type: 'tool_start',
               toolCallId,
               toolName: evt.data?.toolName || 'tool',
             });
           } else if (evt.type === 'tool.execution_complete' || evt.type === 'tool.execution_end') {
-            const toolCallId = evt.data?.toolCallId || '';
+            const toolCallId = resolveRunningToolCallId(runningToolCallIds, evt.data?.toolCallId);
             sendStream(event.sender, request, {
               type: 'tool_end',
               toolCallId,
@@ -419,13 +611,14 @@ export function setupAgentHandlers() {
             });
           } else if (evt.type === 'subagent.started') {
             const toolCallId = evt.data?.toolCallId || nextFallbackToolCallId();
+            runningToolCallIds.push(toolCallId);
             sendStream(event.sender, request, {
               type: 'tool_start',
               toolCallId,
               toolName: `🤖 ${evt.data?.agentDisplayName || evt.data?.agentName || 'subagent'}`,
             });
           } else if (evt.type === 'subagent.completed' || evt.type === 'subagent.failed') {
-            const toolCallId = evt.data?.toolCallId || '';
+            const toolCallId = resolveRunningToolCallId(runningToolCallIds, evt.data?.toolCallId);
             sendStream(event.sender, request, {
               type: 'tool_end',
               toolCallId,
@@ -487,7 +680,7 @@ export function setupAgentHandlers() {
         content: err.message || `Failed to initialize Copilot SDK: ${err}`,
       });
     } finally {
-      releaseLock!();
+      completeLock();
     }
   });
 

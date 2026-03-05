@@ -7,6 +7,7 @@ import { createMockIpcMain } from '../../utils/mockIpcMain';
 describe('src/main/agent.ts', () => {
   beforeEach(() => {
     vi.resetModules();
+    vi.useRealTimers();
     delete process.env.LOOM_TEST_MODE;
     delete process.env.LOOM_TEST_AGENT_RESPONSE;
     delete process.env.LOOM_TEST_AGENT_SCRIPT;
@@ -39,6 +40,64 @@ describe('src/main/agent.ts', () => {
     expect(isConnectionError(new Error('Some other failure'))).toBe(false);
   });
 
+  it('normalizeUsagePayload maps common Copilot usage fields', async () => {
+    const mockIpcMain = createMockIpcMain();
+    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
+
+    const { normalizeUsagePayload } = await import('../../../src/main/agent');
+    expect(normalizeUsagePayload({
+      usage: {
+        promptTokens: '1200',
+        completionTokens: 300,
+        cacheReadInputTokens: 40,
+        cacheCreationInputTokens: 10,
+      },
+    })).toEqual({
+      inputTokens: 1200,
+      outputTokens: 300,
+      cacheReadTokens: 40,
+      cacheWriteTokens: 10,
+      totalTokens: 1550,
+    });
+    expect(normalizeUsagePayload({})).toBeNull();
+  });
+
+  it('resolveRunningToolCallId matches explicit IDs and falls back to oldest running call', async () => {
+    const mockIpcMain = createMockIpcMain();
+    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
+
+    const { resolveRunningToolCallId } = await import('../../../src/main/agent');
+    const running = ['tc-1', 'tc-2'];
+    expect(resolveRunningToolCallId(running)).toBe('tc-1');
+    expect(running).toEqual(['tc-2']);
+    expect(resolveRunningToolCallId(running, 'tc-2')).toBe('tc-2');
+    expect(running).toEqual([]);
+  });
+
+  it('waitForIpcReply clears timeout/listener on early reply', async () => {
+    vi.useFakeTimers();
+    const mockIpcMain = createMockIpcMain();
+    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
+
+    const { waitForIpcReply } = await import('../../../src/main/agent');
+    const sendPrompt = vi.fn();
+    const promise = waitForIpcReply(
+      'agent:reply:test',
+      sendPrompt,
+      (approved: boolean) => approved,
+      () => false,
+      120000,
+    );
+    expect(sendPrompt).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(1);
+
+    mockIpcMain.emit('agent:reply:test', true);
+    await expect(promise).resolves.toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(120000);
+    expect(mockIpcMain.ipcMain.removeListener).toHaveBeenCalledTimes(1);
+  });
+
   it('loadAgentsFromProject reads markdown agents and trims metadata', async () => {
     const mockIpcMain = createMockIpcMain();
     vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
@@ -59,7 +118,7 @@ describe('src/main/agent.ts', () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it('loadMcpFromProject normalizes defaults and skips invalid files', async () => {
+  it('loadMcpFromProject validates server schema and skips malformed entries', async () => {
     const mockIpcMain = createMockIpcMain();
     vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
 
@@ -73,19 +132,41 @@ describe('src/main/agent.ts', () => {
           fs: {
             command: 'npx',
             args: ['-y', '@modelcontextprotocol/server-filesystem'],
+            env: { ROOT: '/tmp' },
           },
           browser: {
             command: 'npx',
           },
+          badArgs: {
+            command: 'npx',
+            args: [1, 2, 3],
+          },
+          badEnv: {
+            command: 'npx',
+            env: { PORT: 8080 },
+          },
+          noCommand: {
+            args: ['a'],
+          },
+          invalidNode: 'not-an-object',
         },
       }),
     );
 
     const { loadMcpFromProject } = await import('../../../src/main/agent');
     const config = loadMcpFromProject(tmpRoot);
-    expect(config.fs.tools).toEqual(['*']);
-    expect(config.browser.args).toEqual([]);
-    expect(config.browser.tools).toEqual(['*']);
+    expect(Object.keys(config).sort()).toEqual(['browser', 'fs']);
+    expect(config.fs).toEqual({
+      command: 'npx',
+      args: ['-y', '@modelcontextprotocol/server-filesystem'],
+      env: { ROOT: '/tmp' },
+      tools: ['*'],
+    });
+    expect(config.browser).toEqual({
+      command: 'npx',
+      args: [],
+      tools: ['*'],
+    });
 
     fs.writeFileSync(path.join(vscodeDir, 'mcp.json'), '{invalid-json');
     expect(loadMcpFromProject(tmpRoot)).toEqual({});
@@ -103,6 +184,7 @@ describe('src/main/agent.ts', () => {
           { type: 'thinking', content: 'reasoning trace' },
           { type: 'tool_start', toolCallId: 'tc-1', toolName: 'read_bash' },
           { type: 'tool_end', toolCallId: 'tc-1', success: true, result: 'tool output' },
+          { type: 'usage', inputTokens: 120, outputTokens: 45, cacheReadTokens: 30, cacheWriteTokens: 5, totalTokens: 200 },
           { type: 'chunk', content: 'fixture response' },
           { type: 'done', content: 'fixture response' },
         ],
@@ -112,7 +194,7 @@ describe('src/main/agent.ts', () => {
     const mockIpcMain = createMockIpcMain();
     vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
 
-    const { setupAgentHandlers } = await import('../../../src/main/agent');
+    const { setupAgentHandlers, getThreadLockCountForTests } = await import('../../../src/main/agent');
     setupAgentHandlers();
 
     expect(mockIpcMain.handlers.has('agent:list-models')).toBe(true);
@@ -133,6 +215,7 @@ describe('src/main/agent.ts', () => {
       },
     );
 
+    expect(getThreadLockCountForTests()).toBe(0);
     expect(send).toHaveBeenCalledWith('agent:stream', 'thread-1', expect.objectContaining({
       type: 'thinking',
       content: 'reasoning trace',
@@ -142,6 +225,15 @@ describe('src/main/agent.ts', () => {
       type: 'tool_end',
       toolCallId: 'tc-1',
       result: 'tool output',
+      requestId: 'req-1',
+    }));
+    expect(send).toHaveBeenCalledWith('agent:stream', 'thread-1', expect.objectContaining({
+      type: 'usage',
+      inputTokens: 120,
+      outputTokens: 45,
+      cacheReadTokens: 30,
+      cacheWriteTokens: 5,
+      totalTokens: 200,
       requestId: 'req-1',
     }));
     expect(send).toHaveBeenCalledWith('agent:stream', 'thread-1', expect.objectContaining({
