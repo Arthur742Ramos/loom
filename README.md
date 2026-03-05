@@ -88,6 +88,32 @@ flowchart LR
   MAIN --> AGENT
 ```
 
+## 🧪 Testing
+
+Tests are split across three layers: unit, end-to-end, and visual regression.
+
+```bash
+npm run test:unit      # Vitest — unit & component tests
+npm run test:e2e       # Playwright — Electron end-to-end tests
+npm run test:visual    # Playwright — screenshot regression tests
+npm run test:ci        # builds, then runs all three suites
+```
+
+**Visual regression** tests capture screenshots of key UI panels and compare
+them against baselines committed under `tests/__screenshots__/`. A
+`maxDiffPixelRatio` of **0.03** (3 %) is applied to each assertion to tolerate
+font-rendering differences across CI environments.
+
+To update baselines after an intentional UI change:
+
+```bash
+npm run test:visual -- --update-snapshots
+```
+
+E2E and visual tests use `LOOM_TEST_MODE` to inject scripted events for
+deterministic execution. On headless Linux CI, tests are wrapped with
+`xvfb-run`.
+
 ## 🤝 Contributing
 
 Contributions are welcome. Open an issue for discussion, then submit a pull request with a clear description and test coverage for behavioral changes.
