@@ -43,8 +43,10 @@ jobs:
 
       - name: Verify Electron runtime
         run: |
-          npx electron --version
-          missing_libs="$(ldd node_modules/electron/dist/electron | grep 'not found' || true)"
+          electron_bin="$(node -e "process.stdout.write(require('electron'))")"
+          test -x "$electron_bin"
+          echo "Electron binary: $electron_bin"
+          missing_libs="$(ldd "$electron_bin" | grep 'not found' || true)"
           if [ -n "$missing_libs" ]; then
             echo "$missing_libs"
             exit 1
