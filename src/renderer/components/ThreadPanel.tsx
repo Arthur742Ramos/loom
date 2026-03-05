@@ -146,8 +146,7 @@ export const ThreadPanel: React.FC = () => {
     question: string; choices?: string[]; allowFreeform?: boolean; replyChannel: string;
   } | null>(null);
   const [userInputAnswer, setUserInputAnswer] = useState('');
-  const [agentStatus, setAgentStatus] = useState('');
-  const [thinkingContent, setThinkingContent] = useState('');
+  const [agentStatusMap, setAgentStatusMap] = useState<Record<string, string>>({});
   const [editingTitle, setEditingTitle] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -157,6 +156,7 @@ export const ThreadPanel: React.FC = () => {
   const thread = threads.find((t) => t.id === activeThreadId);
   if (!thread) return null;
   const threadProjectPath = thread.projectPath || projectPath || '';
+  const agentStatus = (activeThreadId && agentStatusMap[activeThreadId]) || '';
 
   const scrollToBottom = () => {
     const el = scrollContainerRef.current;
@@ -263,9 +263,21 @@ export const ThreadPanel: React.FC = () => {
             rafId = requestAnimationFrame(flushChunks);
           }
         } else if (data.type === 'thinking') {
-          setThinkingContent((prev) => prev + data.content);
+          appendThinking(threadId, assistantMsgId, data.content);
+        } else if (data.type === 'tool_start') {
+          addToolCall(threadId, assistantMsgId, {
+            id: data.toolCallId,
+            toolName: data.toolName,
+            status: 'running',
+          });
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: `Running ${data.toolName}` }));
+        } else if (data.type === 'tool_end') {
+          if (data.toolCallId) {
+            updateToolCallStatus(threadId, assistantMsgId, data.toolCallId, 'done');
+          }
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
         } else if (data.type === 'status') {
-          setAgentStatus(data.status || '');
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: data.status || '' }));
         } else if (data.type === 'done') {
           if (rafId !== null) cancelAnimationFrame(rafId);
           if (chunkBuffer) {
@@ -280,15 +292,13 @@ export const ThreadPanel: React.FC = () => {
           }
           updateMessage(threadId, assistantMsgId, { status: 'done' });
           updateThread(threadId, { status: 'completed' });
-          setAgentStatus('');
-          setThinkingContent('');
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
           ipcRenderer.removeListener('agent:stream', handler);
         } else if (data.type === 'error') {
           if (rafId !== null) cancelAnimationFrame(rafId);
           updateMessage(threadId, assistantMsgId, { status: 'error', content: `Error: ${data.content}` });
           updateThread(threadId, { status: 'error' });
-          setAgentStatus('');
-          setThinkingContent('');
+          setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
           ipcRenderer.removeListener('agent:stream', handler);
         }
       };
