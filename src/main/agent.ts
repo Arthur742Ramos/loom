@@ -14,6 +14,14 @@ import * as path from 'path';
  * - Explicit cancellation via session.abort().
  */
 
+/** Infer the model provider from its ID prefix. */
+function inferProvider(modelId: string): string {
+  if (modelId.startsWith('claude-')) return 'Anthropic';
+  if (modelId.startsWith('gpt-') || modelId.startsWith('o1-') || modelId.startsWith('o3-') || modelId.startsWith('o4-')) return 'OpenAI';
+  if (modelId.startsWith('gemini-')) return 'Google';
+  return 'Other';
+}
+
 let CopilotClientClass: any = null;
 let clientPromise: Promise<any> | null = null;
 
@@ -809,8 +817,8 @@ export function setupAgentHandlers() {
         success: true,
         models: models.map((m: any) => ({
           id: m.id || m.name,
-          label: m.displayName || m.name || m.id,
-          provider: m.publisher || m.provider || 'Unknown',
+          label: m.name || m.id,
+          provider: inferProvider(m.id || m.name),
           supportedReasoningEfforts: m.supportedReasoningEfforts || [],
         })),
       };
