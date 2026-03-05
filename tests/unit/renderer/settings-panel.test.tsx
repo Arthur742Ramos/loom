@@ -53,4 +53,12 @@ describe('SettingsPanel', () => {
     fireEvent.click(screen.getByTestId('settings-close-button'));
     expect(useAppStore.getState().showSettings).toBe(false);
   });
+
+  it('Escape key closes panel', () => {
+    useAppStore.setState({ showSettings: true });
+    render(<SettingsPanel />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(useAppStore.getState().showSettings).toBe(false);
+  });
 });

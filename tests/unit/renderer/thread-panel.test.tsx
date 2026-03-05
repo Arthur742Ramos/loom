@@ -242,4 +242,15 @@ describe('ThreadPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Send' }));
     expect(ipcRenderer.sendReply).toHaveBeenCalledWith('ask-reply-2', 'yes');
   });
+
+  it('prevents sending another prompt while the thread is running', () => {
+    useAppStore.getState().updateThread(threadId, { status: 'running' });
+    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+
+    const input = screen.getByTestId('thread-input');
+    expect(input).toBeDisabled();
+    fireEvent.keyDown(input, { key: 'Enter', code: 'Enter' });
+
+    expect(ipcRenderer.send).not.toHaveBeenCalledWith('agent:send', expect.anything());
+  });
 });

@@ -242,4 +242,26 @@ describe('src/main/agent.ts', () => {
       requestId: 'req-1',
     }));
   });
+
+  it('rejects malformed agent:send payloads with a structured stream error', async () => {
+    const mockIpcMain = createMockIpcMain();
+    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
+
+    const { setupAgentHandlers } = await import('../../../src/main/agent');
+    setupAgentHandlers();
+
+    const listener = mockIpcMain.getListener('agent:send');
+    expect(listener).toBeDefined();
+
+    const send = vi.fn();
+    await listener?.(
+      { sender: { send } },
+      { message: 'hello without thread id' },
+    );
+
+    expect(send).toHaveBeenCalledWith('agent:stream', 'unknown', {
+      type: 'error',
+      content: 'Missing threadId',
+    });
+  });
 });

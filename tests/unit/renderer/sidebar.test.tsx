@@ -27,6 +27,12 @@ describe('Sidebar', () => {
     resetAppStore();
   });
 
+  it('shows a helpful empty state when no projects are configured', () => {
+    render(<Sidebar />);
+    expect(screen.getByText('No project opened yet')).toBeInTheDocument();
+    expect(screen.getByText('Choose a folder to start')).toBeInTheDocument();
+  });
+
   it('creates a new thread for the active project', async () => {
     useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
 
