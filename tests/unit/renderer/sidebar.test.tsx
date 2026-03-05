@@ -38,6 +38,19 @@ describe('Sidebar', () => {
   });
 
   it('calls login and logout IPC handlers', async () => {
+    ipcRenderer.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'auth:get-user') return { authenticated: false };
+      if (channel === 'auth:login') return {
+        success: true,
+        userCode: 'ABCD-1234',
+        verificationUri: 'https://github.com/login/device',
+        expiresIn: 900,
+      };
+      if (channel === 'auth:login-cancel') return { success: true };
+      if (channel === 'auth:logout') return { success: true };
+      return null;
+    });
+
     render(<Sidebar />);
 
     await waitFor(() => expect(screen.getByTestId('login-button')).not.toBeDisabled());
@@ -46,18 +59,15 @@ describe('Sidebar', () => {
       expect(ipcRenderer.invoke).toHaveBeenCalledWith('auth:login'),
     );
 
-    ipcRenderer.invoke.mockImplementation(async (channel: string) => {
-      if (channel === 'auth:get-user') {
-        return {
-          authenticated: true,
-          user: { login: 'octocat', name: 'Octo Cat', avatar_url: 'https://example.com/avatar.png' },
-        };
-      }
-      if (channel === 'auth:logout') return { success: true };
-      return null;
-    });
+    // Device code panel should be shown
+    await waitFor(() => expect(screen.getByTestId('device-code-panel')).toBeInTheDocument());
+    expect(screen.getByText('ABCD-1234')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTestId('check-auth-button'));
+    // Simulate auth completion via IPC event
+    ipcRenderer.emit('auth:login-complete', {
+      authenticated: true,
+      user: { login: 'octocat', name: 'Octo Cat', avatar_url: 'https://example.com/avatar.png' },
+    });
     await waitFor(() => expect(useAppStore.getState().githubUser?.login).toBe('octocat'));
 
     fireEvent.click(screen.getByTestId('logout-button'));

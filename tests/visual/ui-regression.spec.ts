@@ -49,7 +49,6 @@ test.afterEach(async () => {
 test('matches key UI screenshots', async () => {
   const { page } = appContext;
   await expect(page.getByTestId('login-button')).toContainText('Sign in with GitHub');
-  await expect(page.getByTestId('check-auth-button')).toBeEnabled();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
 
   await expect(page.getByTestId('sidebar')).toHaveScreenshot('sidebar.png');

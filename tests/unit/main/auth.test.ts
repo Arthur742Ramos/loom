@@ -1,13 +1,15 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { createMockIpcMain } from '../../utils/mockIpcMain';
 
-const { execSyncMock, execFileSyncMock, spawnMock } = vi.hoisted(() => ({
+const { execSyncMock } = vi.hoisted(() => ({
   execSyncMock: vi.fn(),
-  execFileSyncMock: vi.fn(),
-  spawnMock: vi.fn(() => ({ unref: vi.fn() })),
 }));
 
+const existsSyncMock = vi.fn(() => false);
+
 describe('src/main/auth.ts', () => {
+  let mockIpcMain: ReturnType<typeof createMockIpcMain>;
+
   beforeEach(() => {
     vi.resetModules();
     delete process.env.LOOM_TEST_MODE;
@@ -15,10 +17,28 @@ describe('src/main/auth.ts', () => {
     delete process.env.GITHUB_TOKEN;
     delete process.env.GITHUB_COPILOT_TOKEN;
 
-    vi.doMock('child_process', () => ({
-      execSync: execSyncMock,
-      execFileSync: execFileSyncMock,
-      spawn: spawnMock,
+    existsSyncMock.mockReturnValue(false);
+    mockIpcMain = createMockIpcMain();
+
+    vi.doMock('child_process', () => ({ execSync: execSyncMock }));
+    vi.doMock('fs', () => ({
+      existsSync: existsSyncMock,
+      readFileSync: vi.fn(),
+      writeFileSync: vi.fn(),
+      unlinkSync: vi.fn(),
+    }));
+    vi.doMock('path', () => ({
+      join: vi.fn((...parts: string[]) => parts.join('/')),
+    }));
+    vi.doMock('electron', () => ({
+      ipcMain: mockIpcMain.ipcMain,
+      shell: { openExternal: vi.fn() },
+      safeStorage: {
+        isEncryptionAvailable: vi.fn(() => false),
+        encryptString: vi.fn((s: string) => Buffer.from(s)),
+        decryptString: vi.fn((b: Buffer) => b.toString()),
+      },
+      app: { getPath: vi.fn(() => '/tmp/test-app') },
     }));
   });
 
@@ -29,9 +49,6 @@ describe('src/main/auth.ts', () => {
       name: 'Test User',
       avatar_url: 'https://example.com/avatar.png',
     });
-
-    const mockIpcMain = createMockIpcMain();
-    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain, shell: { openExternal: vi.fn() } }));
 
     const { setupAuthHandlers } = await import('../../../src/main/auth');
     setupAuthHandlers();
@@ -52,9 +69,6 @@ describe('src/main/auth.ts', () => {
       throw new Error('gh not found');
     });
 
-    const mockIpcMain = createMockIpcMain();
-    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain, shell: { openExternal: vi.fn() } }));
-
     const { setupAuthHandlers } = await import('../../../src/main/auth');
     setupAuthHandlers();
 
@@ -72,26 +86,16 @@ describe('src/main/auth.ts', () => {
     });
     vi.stubGlobal('fetch', fetchMock);
 
-    const mockIpcMain = createMockIpcMain();
-    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain, shell: { openExternal: vi.fn() } }));
-
     const { setupAuthHandlers } = await import('../../../src/main/auth');
     setupAuthHandlers();
 
     const result = await mockIpcMain.invoke('auth:get-user');
     expect(result).toEqual({
       authenticated: true,
-      user: {
-        login: 'ghuser',
-        name: 'GH User',
-        avatar_url: 'https://example.com/gh.png',
-      },
+      user: { login: 'ghuser', name: 'GH User', avatar_url: 'https://example.com/gh.png' },
     });
     expect(fetchMock).toHaveBeenCalledWith('https://api.github.com/user', {
-      headers: {
-        Authorization: 'Bearer ghp_test123',
-        'User-Agent': 'Loom',
-      },
+      headers: { Authorization: 'Bearer ghp_test123', 'User-Agent': 'Loom' },
     });
 
     vi.unstubAllGlobals();
@@ -100,9 +104,6 @@ describe('src/main/auth.ts', () => {
   it('auth:login in test mode returns success', async () => {
     process.env.LOOM_TEST_MODE = '1';
 
-    const mockIpcMain = createMockIpcMain();
-    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain, shell: { openExternal: vi.fn() } }));
-
     const { setupAuthHandlers } = await import('../../../src/main/auth');
     setupAuthHandlers();
 
@@ -110,11 +111,36 @@ describe('src/main/auth.ts', () => {
     expect(result).toEqual({ success: true, message: 'Test mode login' });
   });
 
+  it('auth:login starts device flow and returns user code', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: vi.fn().mockResolvedValue({
+        device_code: 'device-123',
+        user_code: 'ABCD-1234',
+        verification_uri: 'https://github.com/login/device',
+        expires_in: 900,
+        interval: 5,
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const { setupAuthHandlers } = await import('../../../src/main/auth');
+    setupAuthHandlers();
+
+    const handler = mockIpcMain.handlers.get('auth:login')!;
+    const result = await handler({ sender: { send: vi.fn() } });
+    expect(result).toEqual({
+      success: true,
+      userCode: 'ABCD-1234',
+      verificationUri: 'https://github.com/login/device',
+      expiresIn: 900,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it('auth:logout in test mode returns success', async () => {
     process.env.LOOM_TEST_MODE = '1';
-
-    const mockIpcMain = createMockIpcMain();
-    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain, shell: { openExternal: vi.fn() } }));
 
     const { setupAuthHandlers } = await import('../../../src/main/auth');
     setupAuthHandlers();
@@ -129,9 +155,6 @@ describe('src/main/auth.ts', () => {
       (err as any).killed = true;
       throw err;
     });
-
-    const mockIpcMain = createMockIpcMain();
-    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain, shell: { openExternal: vi.fn() } }));
 
     const { setupAuthHandlers } = await import('../../../src/main/auth');
     setupAuthHandlers();

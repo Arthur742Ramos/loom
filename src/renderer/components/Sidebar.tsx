@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAppStore, McpServerConfig } from '../store/appStore';
 import { Button } from './ui/button';
 import {Separator } from './ui/separator';
 import {
   SquarePen, LayoutGrid, Folder, FolderPlus, ListFilter, FolderPlusIcon,
-  Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw, Settings,
+  Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw, Settings, Copy, X,
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { LoomLogo } from './LoomIcon';
@@ -26,6 +26,8 @@ export const Sidebar: React.FC = () => {
   const setGitHubUser = useAppStore((s) => s.setGitHubUser);
   const fetchModels = useAppStore((s) => s.fetchModels);
   const [loginLoading, setLoginLoading] = useState(false);
+  const [deviceCode, setDeviceCode] = useState<{ userCode: string; verificationUri: string } | null>(null);
+  const [codeCopied, setCodeCopied] = useState(false);
   const mcpServers = useAppStore((s) => s.mcpServers);
   const addMcpServer = useAppStore((s) => s.addMcpServer);
   const removeMcpServer = useAppStore((s) => s.removeMcpServer);
@@ -105,14 +107,22 @@ export const Sidebar: React.FC = () => {
   const handleLogin = async () => {
     if (!api) return;
     setLoginLoading(true);
+    setCodeCopied(false);
     try {
       const result = await api.invoke('auth:login');
-      if (!result.success) {
-        // Login failed
+      if (result.success && result.userCode) {
+        setDeviceCode({ userCode: result.userCode, verificationUri: result.verificationUri });
+      } else if (!result.success) {
+        setLoginLoading(false);
       }
     } catch {
-      // IPC error
+      setLoginLoading(false);
     }
+  };
+
+  const handleCancelLogin = async () => {
+    if (api) await api.invoke('auth:login-cancel');
+    setDeviceCode(null);
     setLoginLoading(false);
   };
 
@@ -124,6 +134,20 @@ export const Sidebar: React.FC = () => {
 
   // Check auth on mount
   React.useEffect(() => { checkAuthStatus(); }, []);
+
+  // Listen for device flow completion
+  useEffect(() => {
+    if (!api) return;
+    const unsub = api.on('auth:login-complete', (result: any) => {
+      setDeviceCode(null);
+      setLoginLoading(false);
+      if (result.authenticated && result.user) {
+        setGitHubUser(result.user);
+        fetchModels();
+      }
+    });
+    return unsub;
+  }, []);
 
   const statusDot: Record<string, string> = {
     idle: 'bg-gray-300',
@@ -452,6 +476,41 @@ export const Sidebar: React.FC = () => {
               <LogOut className="w-4 h-4" strokeWidth={1.5} />
             </button>
           </div>
+        ) : deviceCode ? (
+          <div className="space-y-2.5 px-3 py-2.5" data-testid="device-code-panel">
+            <p className="text-xs text-muted-foreground">
+              Enter this code on GitHub:
+            </p>
+            <div className="flex items-center gap-2">
+              <code className="flex-1 text-center text-base font-mono font-semibold tracking-widest bg-secondary rounded px-2 py-1.5">
+                {deviceCode.userCode}
+              </code>
+              <button
+                className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded hover:bg-secondary"
+                onClick={() => {
+                  navigator.clipboard.writeText(deviceCode.userCode);
+                  setCodeCopied(true);
+                  setTimeout(() => setCodeCopied(false), 2000);
+                }}
+                title={codeCopied ? 'Copied!' : 'Copy code'}
+              >
+                <Copy className={cn('w-3.5 h-3.5', codeCopied && 'text-green-500')} strokeWidth={1.5} />
+              </button>
+            </div>
+            <div className="flex items-center justify-between">
+              <span className="flex items-center gap-1.5 text-xs text-muted-foreground">
+                <RefreshCw className="w-3 h-3 animate-spin" strokeWidth={1.5} />
+                Waiting for authorization…
+              </span>
+              <button
+                className="text-xs text-muted-foreground hover:text-foreground transition-colors p-1 rounded hover:bg-secondary"
+                onClick={handleCancelLogin}
+                title="Cancel"
+              >
+                <X className="w-3.5 h-3.5" strokeWidth={1.5} />
+              </button>
+            </div>
+          </div>
         ) : (
           <div className="space-y-1">
             <button
@@ -461,16 +520,7 @@ export const Sidebar: React.FC = () => {
               disabled={loginLoading}
             >
               <LogIn className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
-              {loginLoading ? 'Opening login...' : 'Sign in with GitHub'}
-            </button>
-            <button
-              data-testid="check-auth-button"
-              className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-muted-foreground hover:bg-secondary transition-colors"
-              onClick={checkAuthStatus}
-              disabled={loginLoading}
-            >
-              <RefreshCw className={cn('w-3.5 h-3.5', loginLoading && 'animate-spin')} strokeWidth={1.5} />
-              Check login status
+              {loginLoading ? 'Connecting…' : 'Sign in with GitHub'}
             </button>
           </div>
         )}

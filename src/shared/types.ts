@@ -29,6 +29,8 @@ export const IPC = {
 
   // Auth
   AUTH_LOGIN: 'auth:login',
+  AUTH_LOGIN_CANCEL: 'auth:login-cancel',
+  AUTH_LOGIN_COMPLETE: 'auth:login-complete',
   AUTH_LOGOUT: 'auth:logout',
   AUTH_GET_USER: 'auth:get-user',
 

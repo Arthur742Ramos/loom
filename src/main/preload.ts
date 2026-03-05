@@ -22,7 +22,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // IPC invoke (request-response)
   invoke: (channel: string, ...args: any[]) => {
     const allowedInvokeChannels = [
-      'auth:get-user', 'auth:login', 'auth:logout',
+      'auth:get-user', 'auth:login', 'auth:logout', 'auth:login-cancel',
       'git:status', 'git:diff', 'git:stage', 'git:commit',
       'git:create-worktree', 'git:remove-worktree',
       'terminal:create',
@@ -40,7 +40,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   on: (channel: string, callback: (...args: any[]) => void) => {
     const allowedReceiveChannels = [
       'agent:stream', 'agent:permission-request', 'agent:user-input-request',
-      'terminal:data',
+      'terminal:data', 'auth:login-complete',
     ];
     if (allowedReceiveChannels.includes(channel)) {
       const subscription = (_event: any, ...args: any[]) => callback(...args);
@@ -55,7 +55,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   once: (channel: string, callback: (...args: any[]) => void) => {
     const allowedReceiveChannels = [
       'agent:stream', 'agent:permission-request', 'agent:user-input-request',
-      'terminal:data',
+      'terminal:data', 'auth:login-complete',
     ];
     if (allowedReceiveChannels.includes(channel)) {
       ipcRenderer.once(channel, (_event, ...args) => callback(...args));
@@ -72,7 +72,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeListener: (channel: string, callback: (...args: any[]) => void) => {
     const allowedReceiveChannels = [
       'agent:stream', 'agent:permission-request', 'agent:user-input-request',
-      'terminal:data',
+      'terminal:data', 'auth:login-complete',
     ];
     if (allowedReceiveChannels.includes(channel)) {
       ipcRenderer.removeListener(channel, callback);
