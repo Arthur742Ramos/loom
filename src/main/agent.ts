@@ -235,6 +235,16 @@ export function setupAgentHandlers() {
             });
           } else if (evt.type === 'tool.execution_complete') {
             event.sender.send('agent:stream', request.threadId, { type: 'status', status: '' });
+          } else if (evt.type === 'skill.invoked') {
+            event.sender.send('agent:stream', request.threadId, {
+              type: 'status', status: `⚡ Skill: ${evt.data?.name || 'unknown'}`,
+            });
+          } else if (evt.type === 'subagent.started') {
+            event.sender.send('agent:stream', request.threadId, {
+              type: 'status', status: `🤖 Agent: ${evt.data?.agentDisplayName || evt.data?.agentName || 'subagent'}`,
+            });
+          } else if (evt.type === 'subagent.completed' || evt.type === 'subagent.failed') {
+            event.sender.send('agent:stream', request.threadId, { type: 'status', status: '' });
           } else if (evt.type === 'session.error') {
             event.sender.send('agent:stream', request.threadId, {
               type: 'error',

@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../store/appStore';
 import { Button } from './ui/button';
-import { ScrollArea } from './ui/scroll-area';
-import { Separator } from './ui/separator';
+import {Separator } from './ui/separator';
 import {
   SquarePen, Clock, LayoutGrid, Folder, FolderPlus, ListFilter, FolderPlusIcon,
   Clipboard, Trash2, GitBranch, Monitor, LogIn, LogOut, RefreshCw,
@@ -114,11 +113,13 @@ export const Sidebar: React.FC = () => {
   return (
     <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0">
       {/* Brand */}
-      <div className="px-5 mb-6 flex items-center gap-2.5">
+      <div className="px-5 mb-6 flex items-center gap-2.5 shrink-0">
         <LoomLogo className="w-7 h-7 p-1" />
         <span className="text-[15px] font-semibold text-foreground">Loom</span>
       </div>
 
+      {/* Scrollable body: nav + skills + threads */}
+      <div className="flex-1 min-h-0 overflow-y-auto">
       {/* Clipboard icon */}
       <div className="px-5 mb-4">
         <button className="text-muted-foreground hover:text-foreground transition-colors">
@@ -159,7 +160,23 @@ export const Sidebar: React.FC = () => {
               </div>
             )}
             {skills.map((skill, i) => (
-              <div key={`${skill.category}-${skill.name}-${i}`} className="flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
+              <button
+                key={`${skill.category}-${skill.name}-${i}`}
+                className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
+                onClick={() => {
+                  // Insert skill mention into the active thread's next message
+                  if (typeof window !== 'undefined' && (window as any).__appStore) {
+                    const input = document.querySelector('textarea');
+                    if (input) {
+                      const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
+                      nativeSet?.call(input, input.value + `@${skill.name} `);
+                      input.dispatchEvent(new Event('input', { bubbles: true }));
+                      input.focus();
+                    }
+                  }
+                }}
+                title={`Click to mention @${skill.name} in chat`}
+              >
                 <span className="mt-0.5 shrink-0">
                   {skill.category === 'agent' ? '🤖' : skill.category === 'chatmode' ? '💬' : skill.category === 'instructions' ? '📋' : '⚡'}
                 </span>
@@ -175,7 +192,7 @@ export const Sidebar: React.FC = () => {
                   </div>
                   {skill.description && <p className="text-muted-foreground truncate">{skill.description}</p>}
                 </div>
-              </div>
+              </button>
             ))}
           </div>
         )}
@@ -195,7 +212,7 @@ export const Sidebar: React.FC = () => {
       </div>
 
       {/* Projects & threads */}
-      <ScrollArea className="flex-1 px-3">
+      <div className="px-3">
         {projects.map((project) => {
           const projectThreads = threads.filter((thread) =>
             (thread.projectPath || projectPath) === project.path,
@@ -283,7 +300,9 @@ export const Sidebar: React.FC = () => {
           <FolderPlusIcon className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           Add project
         </button>
-      </ScrollArea>
+      </div>
+      {/* end scrollable body */}
+      </div>
       {/* Account */}
       <div className="px-3 pt-2 mt-auto border-t">
         {githubUser ? (

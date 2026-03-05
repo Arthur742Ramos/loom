@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import * as path from 'path';
 import { setupGitHandlers } from './git';
 import { setupTerminalHandlers } from './terminal';
@@ -31,6 +31,7 @@ function createWindow() {
     transparent: false,
     titleBarStyle: 'hiddenInset',
     frame: true,
+    autoHideMenuBar: true,
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
@@ -44,6 +45,9 @@ function createWindow() {
   } else {
     mainWindow.loadFile(path.join(__dirname, '..', 'renderer', 'index.html'));
   }
+
+  // Remove the default menu bar (File, Edit, View, etc.)
+  Menu.setApplicationMenu(null);
 
   // Expose screenshot helper via IPC for testing
   ipcMain.handle('test:screenshot', async (_event, name: string) => {
