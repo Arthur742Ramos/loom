@@ -480,9 +480,8 @@ export const ThreadPanel: React.FC = () => {
         </div>
       </div>
 
-      {/* Chat Tab */}
-      {activeTab === 'chat' && (
-        <div className="flex-1 flex flex-col min-h-0 overflow-hidden">
+      {/* Chat Tab — kept mounted to preserve scroll position */}
+      <div className={cn('flex-1 flex flex-col min-h-0 overflow-hidden', activeTab !== 'chat' && 'hidden')}>
           <div ref={scrollContainerRef} className="flex-1 min-h-0 overflow-y-auto">
             <div className="px-8 py-4">
               {thread.messages.length === 0 && (
@@ -846,7 +845,6 @@ export const ThreadPanel: React.FC = () => {
             </div>
           </div>
         </div>
-      )}
 
       {/* Diff Tab */}
       {activeTab === 'diff' && <DiffView projectPath={threadProjectPath} />}
