@@ -28,8 +28,18 @@ jobs:
             xauth \
             xdg-utils \
             libgtk-3-0 \
+            libatk-bridge2.0-0 \
+            libatk1.0-0 \
+            libcups2 \
             libnss3 \
+            libnspr4 \
             libgbm1 \
+            libx11-xcb1 \
+            libxcomposite1 \
+            libxdamage1 \
+            libxrandr2 \
+            libxkbcommon0 \
+            libxshmfence1 \
             libxss1 \
             libxtst6 \
             libatspi2.0-0 \
@@ -43,6 +53,7 @@ jobs:
 
       - name: Verify Electron runtime
         run: |
+          npx electron --version
           electron_bin="$(node -e "process.stdout.write(require('electron'))")"
           test -x "$electron_bin"
           echo "Electron binary: $electron_bin"
