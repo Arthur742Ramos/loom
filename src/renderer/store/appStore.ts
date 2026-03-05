@@ -114,6 +114,7 @@ interface AppState {
   updateMessage: (threadId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   appendToMessage: (threadId: string, messageId: string, content: string) => void;
   appendThinking: (threadId: string, messageId: string, content: string) => void;
+  appendStreamBuffers: (threadId: string, messageId: string, content?: string, thinking?: string) => void;
   addToolCall: (threadId: string, messageId: string, toolCall: ToolCallEntry) => void;
   updateToolCallStatus: (
     threadId: string,
@@ -343,6 +344,17 @@ const appStore = create<AppState>()(
             updateMessageList(thread, messageId, (message) => ({
               ...message,
               thinking: (message.thinking || '') + content,
+            })),
+          ),
+        })),
+
+      appendStreamBuffers: (threadId, messageId, content, thinking) =>
+        set((s) => ({
+          threads: updateThreadList(s.threads, threadId, (thread) =>
+            updateMessageList(thread, messageId, (message) => ({
+              ...message,
+              ...(content ? { content: message.content + content } : {}),
+              ...(thinking ? { thinking: (message.thinking || '') + thinking } : {}),
             })),
           ),
         })),

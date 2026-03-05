@@ -75,9 +75,13 @@
   }
 }
 
-:where(button, [role="button"], [role="tab"], input, textarea):focus-visible {
+:where(button, [role="button"], [role="tab"], input):focus-visible {
   outline: 2px solid hsl(var(--ring));
   outline-offset: 2px;
+}
+
+textarea:focus-visible {
+  outline: none;
 }
 
 /* ── Typing indicator animation ── */

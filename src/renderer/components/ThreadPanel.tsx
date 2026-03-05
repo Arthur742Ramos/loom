@@ -110,6 +110,7 @@ export const ThreadPanel: React.FC = () => {
     updateMessage,
     updateThread,
     appendThinking,
+    appendStreamBuffers,
     addToolCall,
     updateToolCallStatus,
     addThreadTokenUsage,
@@ -139,6 +140,7 @@ export const ThreadPanel: React.FC = () => {
       updateMessage: state.updateMessage,
       updateThread: state.updateThread,
       appendThinking: state.appendThinking,
+      appendStreamBuffers: state.appendStreamBuffers,
       addToolCall: state.addToolCall,
       updateToolCallStatus: state.updateToolCallStatus,
       addThreadTokenUsage: state.addThreadTokenUsage,
@@ -344,6 +346,7 @@ export const ThreadPanel: React.FC = () => {
       const api = window.electronAPI;
       activeRequestIdByThreadRef.current[threadId] = requestId;
       let chunkBuffer = '';
+      let thinkingBuffer = '';
       let rafId: number | null = null;
       let cleanedUp = false;
       let unsub: (() => void) | undefined;
@@ -351,9 +354,17 @@ export const ThreadPanel: React.FC = () => {
 
       const flushChunks = () => {
         rafId = null;
-        if (chunkBuffer) {
-          appendToMessage(threadId, assistantMsgId, chunkBuffer);
-          chunkBuffer = '';
+        const pendingContent = chunkBuffer;
+        const pendingThinking = thinkingBuffer;
+        chunkBuffer = '';
+        thinkingBuffer = '';
+        if (pendingContent || pendingThinking) {
+          appendStreamBuffers(
+            threadId,
+            assistantMsgId,
+            pendingContent || undefined,
+            pendingThinking || undefined,
+          );
         }
       };
 
@@ -364,9 +375,15 @@ export const ThreadPanel: React.FC = () => {
           cancelAnimationFrame(rafId);
           rafId = null;
         }
-        if (flushPending && chunkBuffer) {
-          appendToMessage(threadId, assistantMsgId, chunkBuffer);
+        if (flushPending && (chunkBuffer || thinkingBuffer)) {
+          appendStreamBuffers(
+            threadId,
+            assistantMsgId,
+            chunkBuffer || undefined,
+            thinkingBuffer || undefined,
+          );
           chunkBuffer = '';
+          thinkingBuffer = '';
         }
         unsub?.();
         if (streamCleanupByThreadRef.current[threadId] === cleanup) {
@@ -388,6 +405,7 @@ export const ThreadPanel: React.FC = () => {
             rafId = null;
           }
           chunkBuffer = '';
+          thinkingBuffer = '';
           updateMessage(threadId, assistantMsgId, { content: '' });
         } else if (payload.type === 'chunk') {
           const content = typeof payload.content === 'string' ? payload.content : '';
@@ -398,7 +416,10 @@ export const ThreadPanel: React.FC = () => {
           }
         } else if (payload.type === 'thinking') {
           if (typeof payload.content === 'string' && payload.content.length > 0) {
-            appendThinking(threadId, assistantMsgId, payload.content);
+            thinkingBuffer += payload.content;
+            if (rafId === null) {
+              rafId = requestAnimationFrame(flushChunks);
+            }
           }
         } else if (payload.type === 'usage') {
           const inputTokens = toTokenCount(payload.inputTokens);
@@ -917,7 +938,7 @@ export const ThreadPanel: React.FC = () => {
 
           {/* Input */}
           <div className="px-8 pb-6 pt-3">
-            <div className="flex items-center bg-secondary/60 border border-border/80 rounded-xl p-1 focus-within:ring-1 focus-within:ring-ring focus-within:border-ring transition-all">
+            <div className="flex items-center bg-secondary/60 border border-border/80 rounded-xl p-1 transition-all">
               <textarea
                 data-testid="thread-input"
                 data-loom-chat-input="true"
