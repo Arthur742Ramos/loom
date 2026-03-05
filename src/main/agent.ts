@@ -368,14 +368,21 @@ export function setupAgentHandlers() {
 
         let toolCallCounter = 0;
         const nextFallbackToolCallId = () => `tc-${++toolCallCounter}`;
+        let currentMessageId: string | undefined;
         unsubscribe = session.on((evt: any) => {
           if (evt.type === 'assistant.message_delta') {
             // Skip sub-agent responses — they belong to tool call output, not the main message.
             if (evt.data?.parentToolCallId) return;
             const content = evt.data?.deltaContent || evt.data?.content || '';
-            if (content) {
-              sendStream(event.sender, request, { type: 'chunk', content });
+            if (!content) return;
+            // When a new assistant turn starts (new messageId), signal the
+            // renderer to replace accumulated content instead of appending.
+            const msgId = evt.data?.messageId;
+            if (msgId && msgId !== currentMessageId) {
+              currentMessageId = msgId;
+              sendStream(event.sender, request, { type: 'turn_reset' });
             }
+            sendStream(event.sender, request, { type: 'chunk', content });
           } else if (evt.type === 'assistant.reasoning') {
             const content = evt.data?.content || '';
             if (content) {
@@ -433,7 +440,7 @@ export function setupAgentHandlers() {
           }
         });
 
-        const result = await session.sendAndWait({ prompt: request.message });
+        const result = await session.sendAndWait({ prompt: request.message }, 2147483647);
         // Send the final complete content so the renderer can fill in any
         // gaps left by streaming deltas (e.g. tool-heavy agentic responses).
         const finalContent = result?.data?.content;

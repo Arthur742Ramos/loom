@@ -316,7 +316,15 @@ export const ThreadPanel: React.FC = () => {
         if (data?.requestId && data.requestId !== requestId) return;
         if (activeRequestIdByThreadRef.current[threadId] !== requestId) return;
 
-        if (data.type === 'chunk') {
+        if (data.type === 'turn_reset') {
+          // New assistant turn — replace accumulated content with fresh output.
+          if (rafId !== null) {
+            cancelAnimationFrame(rafId);
+            rafId = null;
+          }
+          chunkBuffer = '';
+          updateMessage(threadId, assistantMsgId, { content: '' });
+        } else if (data.type === 'chunk') {
           if (!data.content) return;
           chunkBuffer += data.content;
           if (rafId === null) {
