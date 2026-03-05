@@ -155,6 +155,9 @@ export const ThreadPanel: React.FC = () => {
   const setPermissionMode = useAppStore((s) => s.setPermissionMode);
   const mcpServers = useAppStore((s) => s.mcpServers);
   const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
+  const availableModels = useAppStore((s) => s.availableModels);
+  const pendingInputInsertion = useAppStore((s) => s.pendingInputInsertion);
+  const consumeInputInsertion = useAppStore((s) => s.consumeInputInsertion);
   const [input, setInput] = useState('');
   const [pendingPermission, setPendingPermission] = useState<{
     kind: string; toolName?: string; toolArgs?: any; replyChannel: string;
@@ -195,6 +198,17 @@ export const ThreadPanel: React.FC = () => {
     streamCleanupByThreadRef.current = {};
     activeRequestIdByThreadRef.current = {};
   }, []);
+
+  // Consume pending chat input insertions from sidebar skill/agent clicks.
+  useEffect(() => {
+    if (pendingInputInsertion !== null) {
+      const text = consumeInputInsertion();
+      if (text) {
+        setInput((prev) => prev + text);
+        inputRef.current?.focus();
+      }
+    }
+  }, [pendingInputInsertion]);
 
   // Listen for permission requests from the agent backend.
   useEffect(() => {
@@ -675,23 +689,23 @@ export const ThreadPanel: React.FC = () => {
 
           {/* Permission approval banner */}
           {pendingPermission && (
-            <div className="mx-8 mb-1 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-3">
-              <span className="text-amber-600 text-lg mt-0.5">🔐</span>
+            <div className="mx-8 mb-1 p-3 bg-accent border border-border rounded-lg flex items-start gap-3">
+              <span className="text-lg mt-0.5">🔐</span>
               <div className="flex-1 min-w-0">
-                <p className="text-xs font-semibold text-amber-900">
+                <p className="text-xs font-semibold text-foreground">
                   Allow <span className="font-mono">{pendingPermission.kind}</span> access?
                 </p>
                 {(() => {
                   const { kind, replyChannel, ...rest } = pendingPermission as any;
                   const details = rest.toolName || rest.command || rest.path || rest.url;
                   return details ? (
-                    <p className="text-[11px] text-amber-800 mt-0.5 font-mono truncate">{String(details)}</p>
+                    <p className="text-[11px] text-muted-foreground mt-0.5 font-mono truncate">{String(details)}</p>
                   ) : null;
                 })()}
               </div>
               <div className="flex gap-1.5 shrink-0">
                 <Button size="sm" variant="outline"
-                  className="h-7 text-xs border-red-300 text-red-700 hover:bg-red-50"
+                  className="h-7 text-xs border-destructive/40 text-destructive hover:bg-destructive/10"
                   onClick={() => respondToPermission(false)}
                 >Deny</Button>
                 <Button size="sm"
@@ -704,16 +718,16 @@ export const ThreadPanel: React.FC = () => {
 
           {/* User-input request banner (ask_user tool) */}
           {pendingUserInput && (
-            <div className="mx-8 mb-1 p-3 bg-blue-50 border border-blue-200 rounded-lg space-y-2">
+            <div className="mx-8 mb-1 p-3 bg-accent border border-border rounded-lg space-y-2">
               <div className="flex items-start gap-2">
-                <span className="text-blue-600 text-lg">💬</span>
-                <p className="text-[13px] font-medium text-blue-900">{pendingUserInput.question}</p>
+                <span className="text-primary text-lg">💬</span>
+                <p className="text-[13px] font-medium text-foreground">{pendingUserInput.question}</p>
               </div>
               {pendingUserInput.choices && pendingUserInput.choices.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 pl-7">
                   {pendingUserInput.choices.map((choice: string, i: number) => (
                     <Button key={i} size="sm" variant="outline"
-                      className="h-7 text-xs border-blue-300 text-blue-800 hover:bg-blue-100"
+                      className="h-7 text-xs"
                       onClick={() => respondToUserInput(choice)}
                     >{choice}</Button>
                   ))}
@@ -723,7 +737,7 @@ export const ThreadPanel: React.FC = () => {
                 <div className="flex gap-1.5 pl-7">
                   <input
                     type="text"
-                    className="flex-1 px-2.5 py-1.5 text-xs bg-white border border-blue-200 rounded-md outline-none focus:ring-1 focus:ring-blue-400 text-foreground placeholder:text-muted-foreground"
+                    className="flex-1 px-2.5 py-1.5 text-xs bg-card border border-border rounded-md outline-none focus:ring-1 focus:ring-ring text-foreground placeholder:text-muted-foreground"
                     placeholder="Type your answer..."
                     value={userInputAnswer}
                     onChange={(e) => setUserInputAnswer(e.target.value)}
@@ -731,7 +745,7 @@ export const ThreadPanel: React.FC = () => {
                     autoFocus
                   />
                   <Button size="sm"
-                    className="h-7 text-xs bg-blue-600 hover:bg-blue-700 text-white"
+                    className="h-7 text-xs"
                     disabled={!userInputAnswer.trim()}
                     onClick={() => respondToUserInput(userInputAnswer.trim())}
                   >Send</Button>
@@ -780,7 +794,7 @@ export const ThreadPanel: React.FC = () => {
               <div className="flex items-center gap-2">
                 <ModelPicker value={selectedModel} onChange={setSelectedModel} />
                 {(() => {
-                  const currentModel = useAppStore.getState().availableModels.find(m => m.id === selectedModel);
+                  const currentModel = availableModels.find(m => m.id === selectedModel);
                   const supported = currentModel?.supportedReasoningEfforts;
                   const levels = (['low', 'medium', 'high', 'xhigh'] as const).filter(
                     l => !supported || supported.length === 0 || supported.includes(l)
@@ -933,26 +947,26 @@ const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
             {/* Hunks */}
             {expandedFiles.has(file.path) && file.hunks.map((hunk: any, hi: number) => (
               <div key={hi} className="border-t border-border/40">
-                <div className="px-4 py-1 bg-blue-50/50 text-[11px] font-mono text-blue-600">
+                <div className="px-4 py-1 bg-primary/5 text-[11px] font-mono text-primary">
                   @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
                   {hunk.header && <span className="text-muted-foreground ml-2">{hunk.header}</span>}
                 </div>
                 <div className="font-mono text-[12px] leading-[1.6]">
                   {hunk.lines.map((line: any, li: number) => (
                     <div key={li} className={cn('flex',
-                      line.type === 'add' && 'bg-green-50',
-                      line.type === 'del' && 'bg-red-50',
+                      line.type === 'add' && 'bg-green-500/10',
+                      line.type === 'del' && 'bg-red-500/10',
                     )}>
                       <span className={cn('w-[52px] shrink-0 text-right pr-2 select-none text-[11px] border-r',
-                        line.type === 'add' ? 'text-green-400 border-green-200 bg-green-50' :
-                        line.type === 'del' ? 'text-red-400 border-red-200 bg-red-50' :
+                        line.type === 'add' ? 'text-green-500/60 border-green-500/20 bg-green-500/10' :
+                        line.type === 'del' ? 'text-red-500/60 border-red-500/20 bg-red-500/10' :
                         'text-muted-foreground/40 border-border/30',
                       )}>
                         {line.oldLine ?? ''}
                       </span>
                       <span className={cn('w-[52px] shrink-0 text-right pr-2 select-none text-[11px] border-r',
-                        line.type === 'add' ? 'text-green-400 border-green-200 bg-green-50' :
-                        line.type === 'del' ? 'text-red-400 border-red-200 bg-red-50' :
+                        line.type === 'add' ? 'text-green-500/60 border-green-500/20 bg-green-500/10' :
+                        line.type === 'del' ? 'text-red-500/60 border-red-500/20 bg-red-500/10' :
                         'text-muted-foreground/40 border-border/30',
                       )}>
                         {line.newLine ?? ''}
@@ -964,8 +978,8 @@ const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
                         {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
                       </span>
                       <span className={cn('flex-1 px-2 whitespace-pre select-text',
-                        line.type === 'add' ? 'text-green-900' :
-                        line.type === 'del' ? 'text-red-900' : 'text-foreground',
+                        line.type === 'add' ? 'text-green-700 dark:text-green-400' :
+                        line.type === 'del' ? 'text-red-700 dark:text-red-400' : 'text-foreground',
                       )}>
                         {line.content}
                       </span>
@@ -988,10 +1002,13 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
 
   useEffect(() => {
     if (!termRef.current) return;
+    let cleanupFn: (() => void) | undefined;
+    let cancelled = false;
     const initTerminal = async () => {
       try {
         const { Terminal } = await import('@xterm/xterm');
         const { FitAddon } = await import('@xterm/addon-fit');
+        if (cancelled) return;
         const term = new Terminal({
           theme: {
             background: '#1a1b26',
@@ -1029,6 +1046,7 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
         const api = window.electronAPI;
         if (api) {
           const result = await api.invoke('terminal:create', threadId, projectPath);
+          if (cancelled) { term.dispose(); return; }
           if (result.pid) {
             setConnected(true);
             term.onData((data: string) => api.send('terminal:data', threadId, data));
@@ -1037,7 +1055,8 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
             });
             const ro = new ResizeObserver(() => fitAddon.fit());
             ro.observe(termRef.current!);
-            return () => { unsub(); ro.disconnect(); term.dispose(); };
+            cleanupFn = () => { unsub(); ro.disconnect(); term.dispose(); };
+            return;
           }
         } else {
           term.write('Terminal available in desktop mode\r\n$ ');
@@ -1046,13 +1065,14 @@ const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ thr
 
         const ro = new ResizeObserver(() => fitAddon.fit());
         ro.observe(termRef.current!);
-        return () => { ro.disconnect(); term.dispose(); };
+        cleanupFn = () => { ro.disconnect(); term.dispose(); };
       } catch (err) {
         console.error('Terminal init error:', err);
         setError(err instanceof Error ? err.message : 'Failed to initialize terminal');
       }
     };
     initTerminal();
+    return () => { cancelled = true; cleanupFn?.(); };
   }, [threadId, projectPath]);
 
   return (

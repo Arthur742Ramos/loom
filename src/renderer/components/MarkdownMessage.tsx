@@ -33,7 +33,7 @@ export const MarkdownMessage: React.FC<MarkdownMessageProps> = React.memo(({ con
                   {lang}
                 </span>
               )}
-              <pre className="bg-[hsl(220,10%,96%)] border rounded-lg p-3.5 overflow-x-auto">
+              <pre className="bg-secondary/60 border rounded-lg p-3.5 overflow-x-auto">
                 <code className={cn('text-[12.5px] leading-relaxed font-mono', codeClass)} {...props}>
                   {children}
                 </code>

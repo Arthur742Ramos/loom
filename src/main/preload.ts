@@ -53,7 +53,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
 
   // IPC once (one-shot listener)
   once: (channel: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.once(channel, (_event, ...args) => callback(...args));
+    const allowedReceiveChannels = [
+      'agent:stream', 'agent:permission-request', 'agent:user-input-request',
+      'terminal:data',
+    ];
+    if (allowedReceiveChannels.includes(channel)) {
+      ipcRenderer.once(channel, (_event, ...args) => callback(...args));
+    }
   },
 
   // Dynamic reply channels for permission/input flows.
@@ -64,6 +70,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   removeListener: (channel: string, callback: (...args: any[]) => void) => {
-    ipcRenderer.removeListener(channel, callback);
+    const allowedReceiveChannels = [
+      'agent:stream', 'agent:permission-request', 'agent:user-input-request',
+      'terminal:data',
+    ];
+    if (allowedReceiveChannels.includes(channel)) {
+      ipcRenderer.removeListener(channel, callback);
+    }
   },
 });

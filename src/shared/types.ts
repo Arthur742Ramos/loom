@@ -1,79 +1,8 @@
-// Shared types for Loom
+// Shared IPC channel constants for Loom.
+// Type definitions live in their respective modules:
+//   - Thread/ChatMessage/ToolCallEntry → renderer/store/appStore.ts
+//   - DiffFile/DiffHunk/DiffLine       → main/git.ts
 
-export interface Thread {
-  id: string;
-  title: string;
-  cliSessionId: string;
-  projectPath: string;
-  projectName: string;
-  mode: 'local' | 'worktree';
-  status: 'idle' | 'running' | 'completed' | 'error';
-  createdAt: number;
-  messages: Message[];
-  worktreePath?: string;
-}
-
-export interface ToolCallEntry {
-  id: string;
-  toolName: string;
-  status: 'running' | 'done' | 'error';
-  result?: string;
-  error?: string;
-}
-
-export interface Message {
-  id: string;
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-  timestamp: number;
-  status?: 'pending' | 'streaming' | 'done' | 'error';
-  thinking?: string;
-  toolCalls?: ToolCallEntry[];
-  diff?: DiffEntry[];
-  files?: FileChange[];
-}
-
-export interface DiffEntry {
-  filePath: string;
-  hunks: DiffHunk[];
-  status: 'added' | 'modified' | 'deleted';
-}
-
-export interface DiffHunk {
-  oldStart: number;
-  oldLines: number;
-  newStart: number;
-  newLines: number;
-  content: string;
-}
-
-export interface FileChange {
-  path: string;
-  action: 'create' | 'edit' | 'delete';
-  content?: string;
-  staged: boolean;
-}
-
-export interface Project {
-  id: string;
-  name: string;
-  path: string;
-  lastOpened: number;
-}
-
-export interface AgentConfig {
-  model: string;
-  maxTokens: number;
-  temperature: number;
-  systemPrompt: string;
-}
-
-export interface TerminalSession {
-  threadId: string;
-  pid?: number;
-}
-
-// IPC Channel names
 export const IPC = {
   // Git operations
   GIT_DIFF: 'git:diff',
@@ -93,6 +22,10 @@ export const IPC = {
   AGENT_SEND: 'agent:send',
   AGENT_STREAM: 'agent:stream',
   AGENT_CANCEL: 'agent:cancel',
+  AGENT_LIST_MODELS: 'agent:list-models',
+  AGENT_LIST_SKILLS: 'agent:list-skills',
+  AGENT_LIST_AGENTS: 'agent:list-agents',
+  AGENT_LIST_PROJECT_MCP: 'agent:list-project-mcp',
 
   // Auth
   AUTH_LOGIN: 'auth:login',
@@ -100,7 +33,6 @@ export const IPC = {
   AUTH_GET_USER: 'auth:get-user',
 
   // Project
-  PROJECT_OPEN: 'project:open',
   PROJECT_SELECT_DIR: 'project:select-dir',
 
   // Window

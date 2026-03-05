@@ -128,6 +128,11 @@ interface AppState {
   showToolOutputDetails: boolean;
   setShowToolOutputDetails: (show: boolean) => void;
 
+  // Chat input insertion (used by Sidebar to inject mentions)
+  pendingInputInsertion: string | null;
+  insertIntoChatInput: (text: string) => void;
+  consumeInputInsertion: () => string | null;
+
   // Theme
   theme: 'light' | 'dark' | 'system';
   setTheme: (theme: 'light' | 'dark' | 'system') => void;
@@ -362,6 +367,15 @@ const appStore = create<AppState>()(
       setShowSettings: (show) => set({ showSettings: show }),
       showToolOutputDetails: false,
       setShowToolOutputDetails: (show) => set({ showToolOutputDetails: show }),
+
+      // Chat input insertion
+      pendingInputInsertion: null,
+      insertIntoChatInput: (text) => set({ pendingInputInsertion: text }),
+      consumeInputInsertion: () => {
+        const val = get().pendingInputInsertion;
+        if (val !== null) set({ pendingInputInsertion: null });
+        return val;
+      },
 
       // Theme
       theme: 'system',

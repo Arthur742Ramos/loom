@@ -34,6 +34,7 @@ export const Sidebar: React.FC = () => {
   const [projectMcp, setProjectMcp] = useState<Record<string, any>>({});
   const showSettings = useAppStore((s) => s.showSettings);
   const setShowSettings = useAppStore((s) => s.setShowSettings);
+  const insertIntoChatInput = useAppStore((s) => s.insertIntoChatInput);
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<{ name: string; path: string; description: string }[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -261,13 +262,7 @@ export const Sidebar: React.FC = () => {
                 key={`skill-${skill.name}-${i}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
-                  const input = document.querySelector('textarea[data-loom-chat-input]') as HTMLTextAreaElement | null;
-                  if (input) {
-                    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-                    nativeSet?.call(input, input.value + `@${skill.name} `);
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.focus();
-                  }
+                  insertIntoChatInput(`@${skill.name} `);
                 }}
                 title={`Click to mention @${skill.name} in chat`}
               >
@@ -304,13 +299,7 @@ export const Sidebar: React.FC = () => {
                 key={`agent-${agent.name}-${i}`}
                 className="w-full flex items-start gap-2 px-2 py-1.5 rounded-md bg-secondary/40 hover:bg-secondary/70 text-[11px] text-left transition-colors"
                 onClick={() => {
-                  const input = document.querySelector('textarea[data-loom-chat-input]') as HTMLTextAreaElement | null;
-                  if (input) {
-                    const nativeSet = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value')?.set;
-                    nativeSet?.call(input, input.value + `@${agent.name} `);
-                    input.dispatchEvent(new Event('input', { bubbles: true }));
-                    input.focus();
-                  }
+                  insertIntoChatInput(`@${agent.name} `);
                 }}
                 title={`Click to mention @${agent.name} in chat`}
               >
