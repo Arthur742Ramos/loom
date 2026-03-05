@@ -24,6 +24,29 @@ An agentic desktop coding app powered by GitHub Copilot — weaving thread-based
 - **GitHub Copilot backend** — uses your Copilot account for AI
 - **Dark theme** — Codex-inspired minimal dark UI
 
+## Installation
+
+### Download (easiest)
+
+Grab the latest `.exe` from [**Releases**](../../releases):
+
+- **Loom Setup.exe** — one-click installer (recommended)
+- **Loom-portable.exe** — no install needed, just run
+
+### Prerequisites
+
+- **GitHub Copilot** subscription (Individual, Business, or Enterprise)
+- **GitHub CLI** (`gh`) — for authentication ([install](https://cli.github.com))
+
+### Build from source
+
+```bash
+git clone https://github.com/Arthur742Ramos/loom.git
+cd loom
+npm install
+npm run package    # builds + creates installer in release/
+```
+
 ## Getting Started
 
 ```bash

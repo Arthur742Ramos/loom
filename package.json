@@ -77,10 +77,37 @@
     "appId": "com.github.loom",
     "productName": "Loom",
     "files": [
-      "dist/**/*"
+      "dist/**/*",
+      "node_modules/**/*",
+      "!node_modules/**/test/**",
+      "!node_modules/**/docs/**"
     ],
     "directories": {
       "output": "release"
+    },
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "icon": "src/renderer/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Loom"
+    },
+    "portable": {
+      "artifactName": "Loom-${version}-portable.exe"
     }
   }
 }
