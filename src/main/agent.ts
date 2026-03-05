@@ -55,6 +55,99 @@ interface AgentRequest {
 
 type StreamPayload = { type: string } & Record<string, unknown>;
 
+const getErrorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : String(error);
+
+const isNonEmptyString = (value: unknown): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const asOptionalString = (value: unknown): string | undefined =>
+  typeof value === 'string' ? value : undefined;
+
+const asOptionalReasoningEffort = (value: unknown): AgentRequest['reasoningEffort'] =>
+  value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+    ? value
+    : undefined;
+
+const asOptionalPermissionMode = (value: unknown): AgentRequest['permissionMode'] =>
+  value === 'ask' || value === 'auto' || value === 'deny'
+    ? value
+    : undefined;
+
+const normalizeCustomAgents = (value: unknown): AgentRequest['customAgents'] => {
+  if (!Array.isArray(value)) return undefined;
+  const normalized = value
+    .filter((entry): entry is Record<string, unknown> => typeof entry === 'object' && entry !== null)
+    .map((entry) => {
+      if (!isNonEmptyString(entry.name) || !isNonEmptyString(entry.prompt)) return null;
+      const tools = Array.isArray(entry.tools)
+        ? entry.tools.filter((tool): tool is string => typeof tool === 'string')
+        : entry.tools === null
+          ? null
+          : undefined;
+      return {
+        name: entry.name,
+        displayName: asOptionalString(entry.displayName),
+        description: asOptionalString(entry.description),
+        prompt: entry.prompt,
+        ...(tools !== undefined ? { tools } : {}),
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => entry !== null);
+  return normalized.length > 0 ? normalized : undefined;
+};
+
+const normalizeMcpServers = (value: unknown): AgentRequest['mcpServers'] => {
+  if (!isPlainObject(value)) return undefined;
+  const normalized: NonNullable<AgentRequest['mcpServers']> = {};
+  for (const [name, config] of Object.entries(value)) {
+    const parsed = normalizeMcpServerConfig(config);
+    if (parsed) normalized[name] = parsed;
+  }
+  return Object.keys(normalized).length > 0 ? normalized : undefined;
+};
+
+function normalizeAgentRequest(rawRequest: unknown): {
+  request: AgentRequest | null;
+  threadId: string;
+  requestId?: string;
+  error?: string;
+} {
+  if (!isPlainObject(rawRequest)) {
+    return { request: null, threadId: 'unknown', error: 'Invalid request payload' };
+  }
+
+  const threadId = asOptionalString(rawRequest.threadId) || 'unknown';
+  const requestId = asOptionalString(rawRequest.requestId);
+  if (!isNonEmptyString(rawRequest.threadId)) {
+    return { request: null, threadId, requestId, error: 'Missing threadId' };
+  }
+  if (typeof rawRequest.message !== 'string') {
+    return { request: null, threadId, requestId, error: 'Missing message' };
+  }
+
+  const context = isPlainObject(rawRequest.context) && isNonEmptyString(rawRequest.context.cwd)
+    ? { cwd: rawRequest.context.cwd }
+    : undefined;
+
+  return {
+    request: {
+      threadId: rawRequest.threadId,
+      requestId,
+      cliSessionId: asOptionalString(rawRequest.cliSessionId),
+      message: rawRequest.message,
+      ...(context ? { context } : {}),
+      model: asOptionalString(rawRequest.model),
+      reasoningEffort: asOptionalReasoningEffort(rawRequest.reasoningEffort),
+      permissionMode: asOptionalPermissionMode(rawRequest.permissionMode),
+      mcpServers: normalizeMcpServers(rawRequest.mcpServers),
+      customAgents: normalizeCustomAgents(rawRequest.customAgents),
+    },
+    threadId,
+    requestId,
+  };
+}
+
 interface ScriptedTestEvent {
   type: 'status' | 'thinking' | 'tool_start' | 'tool_end' | 'chunk' | 'usage' | 'done' | 'error';
   status?: string;
@@ -335,11 +428,18 @@ async function resetClient(): Promise<void> {
 }
 
 export function isConnectionError(err: unknown): boolean {
-  const message = String((err as any)?.message || err || '');
+  const message = getErrorMessage(err);
   return /Connection is closed|Connection is disposed|ERR_STREAM_DESTROYED|write after a stream was destroyed|Pending response rejected/i.test(message);
 }
 
-export function loadAgentsFromProject(cwd?: string): any[] {
+export interface ProjectAgentConfig {
+  name: string;
+  displayName: string;
+  description: string;
+  prompt: string;
+}
+
+export function loadAgentsFromProject(cwd?: string): ProjectAgentConfig[] {
   if (!cwd) return [];
   const agentDir = path.join(cwd, '.github', 'agents');
   try {
@@ -360,7 +460,7 @@ export function loadAgentsFromProject(cwd?: string): any[] {
   } catch { return []; }
 }
 
-export function loadMcpFromProject(cwd?: string): Record<string, any> {
+export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpServerConfig> {
   if (!cwd) return {};
   const candidates = [
     path.join(cwd, '.vscode', 'mcp.json'),
@@ -437,7 +537,7 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
   const projectMcp = loadMcpFromProject(request.context?.cwd);
   const baseConfig = {
     model: request.model,
-    reasoningEffort: request.reasoningEffort as any,
+    reasoningEffort: request.reasoningEffort,
     workingDirectory: request.context?.cwd,
     configDir: request.context?.cwd,
     streaming: true,
@@ -470,8 +570,8 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
     });
     threadSessionIds.set(request.threadId, session.sessionId);
     return session;
-  } catch (createErr: any) {
-    const msg = String(createErr?.message || '');
+  } catch (createErr: unknown) {
+    const msg = getErrorMessage(createErr);
     if (/does not support reasoning effort/i.test(msg)) {
       const session = await client.createSession({
         ...baseConfig,
@@ -486,7 +586,20 @@ async function getOrCreateSession(client: any, request: AgentRequest, sender: El
 }
 
 export function setupAgentHandlers() {
-  ipcMain.on('agent:send', async (event, request: AgentRequest) => {
+  ipcMain.on('agent:send', async (event, rawRequest: unknown) => {
+    const normalized = normalizeAgentRequest(rawRequest);
+    if (!normalized.request) {
+      event.sender.send(
+        'agent:stream',
+        normalized.threadId,
+        normalized.requestId
+          ? { type: 'error', content: normalized.error || 'Invalid request', requestId: normalized.requestId }
+          : { type: 'error', content: normalized.error || 'Invalid request' },
+      );
+      return;
+    }
+    const request = normalized.request;
+
     // Serialize requests per thread to prevent concurrent execution races.
     const prevLock = threadLocks.get(request.threadId) || Promise.resolve();
     let releaseLock: () => void = () => {};
@@ -653,7 +766,7 @@ export function setupAgentHandlers() {
 
     try {
       await runOnce();
-    } catch (err: any) {
+    } catch (err: unknown) {
       if (canceledThreads.has(request.threadId)) {
         canceledThreads.delete(request.threadId);
         sendStream(event.sender, request, { type: 'done' });
@@ -666,10 +779,10 @@ export function setupAgentHandlers() {
         try {
           await runOnce();
           return;
-        } catch (retryErr: any) {
+        } catch (retryErr: unknown) {
           sendStream(event.sender, request, {
             type: 'error',
-            content: `Failed to initialize Copilot SDK: ${retryErr.message || 'Connection recovery failed'}`,
+            content: `Failed to initialize Copilot SDK: ${getErrorMessage(retryErr) || 'Connection recovery failed'}`,
           });
           return;
         }
@@ -677,7 +790,7 @@ export function setupAgentHandlers() {
 
       sendStream(event.sender, request, {
         type: 'error',
-        content: err.message || `Failed to initialize Copilot SDK: ${err}`,
+        content: getErrorMessage(err),
       });
     } finally {
       completeLock();
@@ -701,8 +814,8 @@ export function setupAgentHandlers() {
           supportedReasoningEfforts: m.supportedReasoningEfforts || [],
         })),
       };
-    } catch (err: any) {
-      return { success: false, error: err.message };
+    } catch (err: unknown) {
+      return { success: false, error: getErrorMessage(err) };
     }
   });
 

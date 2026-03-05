@@ -7,6 +7,8 @@ export const TerminalView: React.FC<{ threadId: string; projectPath: string }> =
 
   useEffect(() => {
     if (!termRef.current) return;
+    setConnected(false);
+    setError(null);
     let cleanupFn: (() => void) | undefined;
     let cancelled = false;
     const initTerminal = async () => {
@@ -50,7 +52,7 @@ export const TerminalView: React.FC<{ threadId: string; projectPath: string }> =
 
         const api = window.electronAPI;
         if (api) {
-          const result = await api.invoke('terminal:create', threadId, projectPath);
+          const result = await api.invoke<{ pid?: number; error?: string }>('terminal:create', threadId, projectPath);
           if (cancelled) { term.dispose(); return; }
           if (result.pid) {
             setConnected(true);
@@ -60,9 +62,22 @@ export const TerminalView: React.FC<{ threadId: string; projectPath: string }> =
             });
             const ro = new ResizeObserver(() => fitAddon.fit());
             ro.observe(termRef.current!);
-            cleanupFn = () => { unsub(); ro.disconnect(); term.dispose(); };
+            cleanupFn = () => {
+              api.send('terminal:dispose', threadId);
+              unsub();
+              ro.disconnect();
+              term.dispose();
+            };
             return;
           }
+          setError(result.error || 'Failed to connect terminal');
+          const ro = new ResizeObserver(() => fitAddon.fit());
+          ro.observe(termRef.current!);
+          cleanupFn = () => {
+            ro.disconnect();
+            term.dispose();
+          };
+          return;
         } else {
           term.write('Terminal available in desktop mode\r\n$ ');
           setConnected(true);
