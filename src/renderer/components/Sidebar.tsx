@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useAppStore, McpServerConfig } from '../store/appStore';
 import { Button } from './ui/button';
 import {Separator } from './ui/separator';
@@ -44,25 +44,112 @@ export const Sidebar: React.FC = () => {
   const [agents, setAgents] = useState<{ name: string; path: string; description: string }[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [threadFilter, setThreadFilter] = useState('');
+  const isMountedRef = useRef(true);
+  const latestProjectPathRef = useRef<string | null>(projectPath);
+  const skillsRequestIdRef = useRef(0);
+  const agentsRequestIdRef = useRef(0);
+  const projectMcpRequestIdRef = useRef(0);
+
+  useEffect(() => {
+    latestProjectPathRef.current = projectPath;
+  }, [projectPath]);
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
+
+  useEffect(() => {
+    setProjectMcp({});
+    setSkills([]);
+    setAgents([]);
+  }, [projectPath]);
 
   const loadSkills = async () => {
-    if (!projectPath || !window.electronAPI) return;
+    const targetProjectPath = projectPath;
+    if (!targetProjectPath || !window.electronAPI) return;
+    const requestId = ++skillsRequestIdRef.current;
     setSkillsLoading(true);
     try {
-      const result = await window.electronAPI.invoke('agent:list-skills', projectPath);
-      setSkills(result || []);
-    } catch { setSkills([]); }
-    setSkillsLoading(false);
+      const result = await window.electronAPI.invoke('agent:list-skills', targetProjectPath);
+      if (
+        !isMountedRef.current
+        || requestId !== skillsRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setSkills(Array.isArray(result) ? result : []);
+    } catch {
+      if (
+        !isMountedRef.current
+        || requestId !== skillsRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setSkills([]);
+    } finally {
+      if (isMountedRef.current && requestId === skillsRequestIdRef.current) {
+        setSkillsLoading(false);
+      }
+    }
   };
 
   const loadAgents = async () => {
-    if (!projectPath || !window.electronAPI) return;
+    const targetProjectPath = projectPath;
+    if (!targetProjectPath || !window.electronAPI) return;
+    const requestId = ++agentsRequestIdRef.current;
     setAgentsLoading(true);
     try {
-      const result = await window.electronAPI.invoke('agent:list-agents', projectPath);
-      setAgents(result || []);
-    } catch { setAgents([]); }
-    setAgentsLoading(false);
+      const result = await window.electronAPI.invoke('agent:list-agents', targetProjectPath);
+      if (
+        !isMountedRef.current
+        || requestId !== agentsRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setAgents(Array.isArray(result) ? result : []);
+    } catch {
+      if (
+        !isMountedRef.current
+        || requestId !== agentsRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setAgents([]);
+    } finally {
+      if (isMountedRef.current && requestId === agentsRequestIdRef.current) {
+        setAgentsLoading(false);
+      }
+    }
+  };
+
+  const loadProjectMcp = async () => {
+    const targetProjectPath = projectPath;
+    if (!targetProjectPath || !window.electronAPI) return;
+    const requestId = ++projectMcpRequestIdRef.current;
+    try {
+      const result = await window.electronAPI.invoke('agent:list-project-mcp', targetProjectPath);
+      if (
+        !isMountedRef.current
+        || requestId !== projectMcpRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setProjectMcp(result && typeof result === 'object' ? result : {});
+    } catch {
+      if (
+        !isMountedRef.current
+        || requestId !== projectMcpRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setProjectMcp({});
+    }
   };
 
   const handleOpenProject = async () => {
@@ -184,9 +271,7 @@ export const Sidebar: React.FC = () => {
           )}
           onClick={() => {
             setShowMcp(!showMcp);
-            if (!showMcp && projectPath && window.electronAPI) {
-              window.electronAPI.invoke('agent:list-project-mcp', projectPath).then((r: any) => setProjectMcp(r || {}));
-            }
+            if (!showMcp) void loadProjectMcp();
           }}
         >
           <Monitor className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
