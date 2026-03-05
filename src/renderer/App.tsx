@@ -10,6 +10,8 @@ const App: React.FC = () => {
   const activeThreadId = useAppStore((s) => s.activeThreadId);
   const projectPath = useAppStore((s) => s.projectPath);
   const theme = useAppStore((s) => s.theme);
+  const createThread = useAppStore((s) => s.createThread);
+  const setShowSettings = useAppStore((s) => s.setShowSettings);
 
   useEffect(() => {
     const apply = (resolved: 'light' | 'dark') => {
@@ -27,6 +29,27 @@ const App: React.FC = () => {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
+
+  // Global keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (mod && e.key === 'n') {
+        e.preventDefault();
+        createThread('New thread', 'local');
+      } else if (mod && e.key === ',') {
+        e.preventDefault();
+        setShowSettings(true);
+      } else if (mod && e.key === 'l') {
+        e.preventDefault();
+        // Focus chat input
+        const input = document.querySelector('textarea[data-loom-chat-input]') as HTMLTextAreaElement | null;
+        input?.focus();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [createThread, setShowSettings]);
 
   return (
     <TooltipProvider>

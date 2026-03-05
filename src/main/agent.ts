@@ -492,17 +492,9 @@ export function setupAgentHandlers() {
   });
 
   ipcMain.handle('agent:list-models', async () => {
-    let modelClient: any;
     try {
-      const CopilotClient = await loadClientClass();
-      modelClient = new CopilotClient({
-        cliPath: findCopilotPath(),
-        autoStart: true,
-        autoRestart: false,
-        logLevel: 'error',
-      });
-      await modelClient.start?.();
-      const models = await modelClient.listModels();
+      const client = await getClient();
+      const models = await client.listModels();
       return {
         success: true,
         models: models.map((m: any) => ({
@@ -514,12 +506,6 @@ export function setupAgentHandlers() {
       };
     } catch (err: any) {
       return { success: false, error: err.message };
-    } finally {
-      if (modelClient) {
-        try {
-          await modelClient.stop?.();
-        } catch {}
-      }
     }
   });
 

@@ -10,112 +10,9 @@ import {
 import { cn } from '../lib/utils';
 import { MarkdownMessage } from './MarkdownMessage';
 import { LoomIcon } from './LoomIcon';
-
-const ModelPicker: React.FC<{
-  value: string;
-  onChange: (model: string) => void;
-}> = ({ value, onChange }) => {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const ref = useRef<HTMLDivElement>(null);
-  const searchRef = useRef<HTMLInputElement>(null);
-  const availableModels = useAppStore((s) => s.availableModels);
-  const modelsLoading = useAppStore((s) => s.modelsLoading);
-  const fetchModels = useAppStore((s) => s.fetchModels);
-  const current = availableModels.find((m) => m.id === value);
-
-  useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  useEffect(() => {
-    if (open) {
-      setSearch('');
-      searchRef.current?.focus();
-    }
-  }, [open]);
-
-  const filtered = availableModels.filter(
-    (m) =>
-      m.label.toLowerCase().includes(search.toLowerCase()) ||
-      m.provider.toLowerCase().includes(search.toLowerCase()) ||
-      m.id.toLowerCase().includes(search.toLowerCase()),
-  );
-
-  // Group by provider
-  const providers = [...new Set(filtered.map((m) => m.provider))];
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={() => setOpen(!open)}
-        className="inline-flex items-center gap-1.5 px-2 py-1 rounded-md text-[11px] text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors"
-      >
-        <span className="font-medium">{current?.label || value}</span>
-        <ChevronDown className={cn('w-3 h-3 transition-transform', open && 'rotate-180')} />
-      </button>
-      {open && (
-        <div className="absolute bottom-full left-0 mb-1 w-64 bg-card border rounded-lg shadow-lg z-50 flex flex-col max-h-[380px]">
-          {/* Search + refresh */}
-          <div className="flex items-center gap-1 p-2 border-b">
-            <input
-              ref={searchRef}
-              type="text"
-              placeholder="Search models..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none px-1"
-            />
-            <button
-              onClick={(e) => { e.stopPropagation(); fetchModels(); }}
-              className="text-muted-foreground hover:text-foreground p-1 rounded transition-colors"
-              title="Refresh models from GitHub"
-            >
-              {modelsLoading
-                ? <Loader2 className="w-3 h-3 animate-spin" />
-                : <RefreshCw className="w-3 h-3" />}
-            </button>
-          </div>
-          {/* Model list */}
-          <div className="overflow-y-auto py-1">
-            {providers.length === 0 && (
-              <p className="px-3 py-2 text-[11px] text-muted-foreground">No models found</p>
-            )}
-            {providers.map((provider) => {
-              const models = filtered.filter((m) => m.provider === provider);
-              return (
-                <div key={provider}>
-                  <div className="px-3 py-1.5 text-[10px] font-semibold text-muted-foreground/70 uppercase tracking-wider sticky top-0 bg-card">
-                    {provider}
-                  </div>
-                  {models.map((m) => (
-                    <button
-                      key={m.id}
-                      className={cn(
-                        'w-full flex items-center gap-2 px-3 py-1.5 text-[12px] transition-colors',
-                        m.id === value
-                          ? 'text-foreground bg-secondary/60'
-                          : 'text-muted-foreground hover:text-foreground hover:bg-secondary/40',
-                      )}
-                      onClick={() => { onChange(m.id); setOpen(false); }}
-                    >
-                      <Check className={cn('w-3 h-3 shrink-0', m.id === value ? 'opacity-100' : 'opacity-0')} />
-                      <span className="truncate">{m.label}</span>
-                    </button>
-                  ))}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
+import { ModelPicker } from './ModelPicker';
+import { DiffView } from './DiffView';
+import { TerminalView } from './TerminalView';
 
 const THINKING_SUMMARY_LIMIT = 60;
 const THINKING_PREVIEW_LIMIT = 500;
@@ -276,6 +173,14 @@ export const ThreadPanel: React.FC = () => {
       status: 'done',
     };
     addMessage(threadId, userMsg);
+
+    // Auto-title from first user message
+    if (thread.title === 'New thread') {
+      const autoTitle = trimmedInput.length > 50
+        ? trimmedInput.slice(0, 47) + '...'
+        : trimmedInput;
+      updateThread(threadId, { title: autoTitle });
+    }
 
     const assistantMsgId = `msg-${crypto.randomUUID()}`;
     const assistantMsg: ChatMessage = {
@@ -452,9 +357,11 @@ export const ThreadPanel: React.FC = () => {
             title="Double-click to rename"
           >{thread.title}</h2>
         )}
-        <div className="flex gap-0.5 bg-secondary rounded-lg p-1">
+        <div className="flex gap-0.5 bg-secondary rounded-lg p-1" role="tablist" aria-label="Thread view tabs">
           <button
             data-testid="tab-chat"
+            role="tab"
+            aria-selected={activeTab === 'chat'}
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
               activeTab === 'chat' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             onClick={() => setActiveTab('chat')}
@@ -463,6 +370,8 @@ export const ThreadPanel: React.FC = () => {
           </button>
           <button
             data-testid="tab-diff"
+            role="tab"
+            aria-selected={activeTab === 'diff'}
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
               activeTab === 'diff' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             onClick={() => setActiveTab('diff')}
@@ -471,6 +380,8 @@ export const ThreadPanel: React.FC = () => {
           </button>
           <button
             data-testid="tab-terminal"
+            role="tab"
+            aria-selected={activeTab === 'terminal'}
             className={cn('inline-flex items-center gap-1.5 px-3 h-7 text-xs font-medium rounded-md transition-all',
               activeTab === 'terminal' ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
             onClick={() => setActiveTab('terminal')}
@@ -659,20 +570,20 @@ export const ThreadPanel: React.FC = () => {
                           })()}
                         </div>
                       )}
-                      {msg.role === 'assistant' && msg.content && msg.status !== 'streaming' ? (
+                      {msg.role === 'assistant' && msg.content ? (
                         <MarkdownMessage
                           content={msg.content}
                           className="text-[13.5px] leading-relaxed text-foreground select-text"
                         />
+                      ) : msg.role === 'assistant' && msg.status === 'streaming' && !msg.content ? (
+                        <span className="inline-flex gap-1 py-1">
+                          <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+                          <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+                          <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+                        </span>
                       ) : (
                         <div className="text-[13.5px] leading-relaxed text-foreground whitespace-pre-wrap break-words select-text">
-                          {msg.content || (msg.status === 'streaming' && (
-                            <span className="inline-flex gap-1 py-1">
-                              <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                              <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                              <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                            </span>
-                          ))}
+                          {msg.content}
                         </div>
                       )}
                       {msg.status === 'error' && (
@@ -760,6 +671,7 @@ export const ThreadPanel: React.FC = () => {
                 data-testid="thread-input"
                 data-loom-chat-input="true"
                 ref={inputRef}
+                aria-label="Chat message input"
                 className="flex-1 px-3.5 py-2.5 bg-transparent border-none text-sm font-sans resize-none outline-none max-h-[120px] leading-relaxed text-foreground placeholder:text-muted-foreground"
                 placeholder="Ask Copilot to work on something..."
                 value={input}
@@ -851,241 +763,6 @@ export const ThreadPanel: React.FC = () => {
 
       {/* Terminal Tab */}
       {activeTab === 'terminal' && <TerminalView threadId={thread.id} projectPath={threadProjectPath} />}
-    </div>
-  );
-};
-
-const DiffView: React.FC<{ projectPath: string }> = ({ projectPath }) => {
-  const [files, setFiles] = useState<any[]>([]);
-  const [expandedFiles, setExpandedFiles] = useState<Set<string>>(new Set());
-  const [loading, setLoading] = useState(false);
-  const [staged, setStaged] = useState(false);
-
-  const loadDiff = async () => {
-    setLoading(true);
-    try {
-      const api = window.electronAPI;
-      if (api) {
-        const result = await api.invoke('git:diff', projectPath, staged);
-        const parsed = result.files || [];
-        setFiles(parsed);
-        setExpandedFiles(new Set(parsed.map((f: any) => f.path)));
-      }
-    } catch (err) {
-      console.error('Failed to load diff:', err);
-      setFiles([]);
-    }
-    setLoading(false);
-  };
-
-  useEffect(() => { loadDiff(); }, [projectPath, staged]);
-
-  const toggleFile = (path: string) => {
-    setExpandedFiles(prev => {
-      const next = new Set(prev);
-      next.has(path) ? next.delete(path) : next.add(path);
-      return next;
-    });
-  };
-
-  const statusIcon = (s: string) =>
-    s === 'added' ? '🟢' : s === 'deleted' ? '🔴' : s === 'renamed' ? '🔵' : '🟡';
-
-  return (
-    <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="diff-view">
-      <div className="flex items-center gap-2 px-4 py-2 border-b bg-card shrink-0">
-        <Button variant="outline" size="sm" className="h-7 text-xs gap-1.5" onClick={loadDiff}>
-          <RefreshCw className="w-3 h-3" /> Refresh
-        </Button>
-        <div className="flex items-center gap-0.5 bg-secondary/50 rounded-md p-0.5">
-          <button onClick={() => setStaged(false)}
-            className={cn('px-2 py-0.5 rounded text-[10px] font-medium transition-all',
-              !staged ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
-          >Unstaged</button>
-          <button onClick={() => setStaged(true)}
-            className={cn('px-2 py-0.5 rounded text-[10px] font-medium transition-all',
-              staged ? 'bg-card text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground')}
-          >Staged</button>
-        </div>
-        {files.length > 0 && (
-          <span className="text-[11px] text-muted-foreground ml-auto">
-            {files.length} file{files.length !== 1 ? 's' : ''} ·{' '}
-            <span className="text-green-600">+{files.reduce((s: number, f: any) => s + f.additions, 0)}</span>{' '}
-            <span className="text-red-500">-{files.reduce((s: number, f: any) => s + f.deletions, 0)}</span>
-          </span>
-        )}
-      </div>
-      <div className="flex-1 min-h-0 overflow-y-auto">
-        {loading && <p className="p-4 text-sm text-muted-foreground">Loading diff...</p>}
-        {!loading && files.length === 0 && (
-          <div className="flex flex-col items-center justify-center min-h-[200px] text-muted-foreground/60 text-sm">
-            No {staged ? 'staged' : 'unstaged'} changes
-          </div>
-        )}
-        {files.map((file: any) => (
-          <div key={file.path} className="border-b last:border-b-0">
-            {/* File header */}
-            <button
-              className="w-full flex items-center gap-2 px-4 py-2 text-left hover:bg-secondary/40 transition-colors"
-              onClick={() => toggleFile(file.path)}
-            >
-              <ChevronDown className={cn('w-3.5 h-3.5 text-muted-foreground transition-transform',
-                !expandedFiles.has(file.path) && '-rotate-90')} />
-              <span className="text-xs">{statusIcon(file.status)}</span>
-              <span className="text-[13px] font-mono text-foreground truncate flex-1">{file.path}</span>
-              {file.oldPath && (
-                <span className="text-[11px] text-muted-foreground">← {file.oldPath}</span>
-              )}
-              <span className="text-[11px] shrink-0">
-                <span className="text-green-600">+{file.additions}</span>
-                {' '}
-                <span className="text-red-500">-{file.deletions}</span>
-              </span>
-            </button>
-            {/* Hunks */}
-            {expandedFiles.has(file.path) && file.hunks.map((hunk: any, hi: number) => (
-              <div key={hi} className="border-t border-border/40">
-                <div className="px-4 py-1 bg-primary/5 text-[11px] font-mono text-primary">
-                  @@ -{hunk.oldStart},{hunk.oldCount} +{hunk.newStart},{hunk.newCount} @@
-                  {hunk.header && <span className="text-muted-foreground ml-2">{hunk.header}</span>}
-                </div>
-                <div className="font-mono text-[12px] leading-[1.6]">
-                  {hunk.lines.map((line: any, li: number) => (
-                    <div key={li} className={cn('flex',
-                      line.type === 'add' && 'bg-green-500/10',
-                      line.type === 'del' && 'bg-red-500/10',
-                    )}>
-                      <span className={cn('w-[52px] shrink-0 text-right pr-2 select-none text-[11px] border-r',
-                        line.type === 'add' ? 'text-green-500/60 border-green-500/20 bg-green-500/10' :
-                        line.type === 'del' ? 'text-red-500/60 border-red-500/20 bg-red-500/10' :
-                        'text-muted-foreground/40 border-border/30',
-                      )}>
-                        {line.oldLine ?? ''}
-                      </span>
-                      <span className={cn('w-[52px] shrink-0 text-right pr-2 select-none text-[11px] border-r',
-                        line.type === 'add' ? 'text-green-500/60 border-green-500/20 bg-green-500/10' :
-                        line.type === 'del' ? 'text-red-500/60 border-red-500/20 bg-red-500/10' :
-                        'text-muted-foreground/40 border-border/30',
-                      )}>
-                        {line.newLine ?? ''}
-                      </span>
-                      <span className={cn('w-5 shrink-0 text-center select-none text-[11px]',
-                        line.type === 'add' ? 'text-green-600' :
-                        line.type === 'del' ? 'text-red-500' : 'text-transparent',
-                      )}>
-                        {line.type === 'add' ? '+' : line.type === 'del' ? '-' : ' '}
-                      </span>
-                      <span className={cn('flex-1 px-2 whitespace-pre select-text',
-                        line.type === 'add' ? 'text-green-700 dark:text-green-400' :
-                        line.type === 'del' ? 'text-red-700 dark:text-red-400' : 'text-foreground',
-                      )}>
-                        {line.content}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            ))}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-};
-
-const TerminalView: React.FC<{ threadId: string; projectPath: string }> = ({ threadId, projectPath }) => {
-  const termRef = useRef<HTMLDivElement>(null);
-  const [connected, setConnected] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!termRef.current) return;
-    let cleanupFn: (() => void) | undefined;
-    let cancelled = false;
-    const initTerminal = async () => {
-      try {
-        const { Terminal } = await import('@xterm/xterm');
-        const { FitAddon } = await import('@xterm/addon-fit');
-        if (cancelled) return;
-        const term = new Terminal({
-          theme: {
-            background: '#1a1b26',
-            foreground: '#c0caf5',
-            cursor: '#c0caf5',
-            cursorAccent: '#1a1b26',
-            selectionBackground: '#33467c',
-            selectionForeground: '#c0caf5',
-            black: '#15161e',
-            red: '#f7768e',
-            green: '#9ece6a',
-            yellow: '#e0af68',
-            blue: '#7aa2f7',
-            magenta: '#bb9af7',
-            cyan: '#7dcfff',
-            white: '#a9b1d6',
-            brightBlack: '#414868',
-            brightRed: '#f7768e',
-            brightGreen: '#9ece6a',
-            brightYellow: '#e0af68',
-            brightBlue: '#7aa2f7',
-            brightMagenta: '#bb9af7',
-            brightCyan: '#7dcfff',
-            brightWhite: '#c0caf5',
-          },
-          fontFamily: "'JetBrains Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace",
-          fontSize: 13,
-          cursorBlink: true,
-        });
-        const fitAddon = new FitAddon();
-        term.loadAddon(fitAddon);
-        term.open(termRef.current!);
-        fitAddon.fit();
-
-        const api = window.electronAPI;
-        if (api) {
-          const result = await api.invoke('terminal:create', threadId, projectPath);
-          if (cancelled) { term.dispose(); return; }
-          if (result.pid) {
-            setConnected(true);
-            term.onData((data: string) => api.send('terminal:data', threadId, data));
-            const unsub = api.on('terminal:data', (id: string, data: string) => {
-              if (id === threadId) term.write(data);
-            });
-            const ro = new ResizeObserver(() => fitAddon.fit());
-            ro.observe(termRef.current!);
-            cleanupFn = () => { unsub(); ro.disconnect(); term.dispose(); };
-            return;
-          }
-        } else {
-          term.write('Terminal available in desktop mode\r\n$ ');
-          setConnected(true);
-        }
-
-        const ro = new ResizeObserver(() => fitAddon.fit());
-        ro.observe(termRef.current!);
-        cleanupFn = () => { ro.disconnect(); term.dispose(); };
-      } catch (err) {
-        console.error('Terminal init error:', err);
-        setError(err instanceof Error ? err.message : 'Failed to initialize terminal');
-      }
-    };
-    initTerminal();
-    return () => { cancelled = true; cleanupFn?.(); };
-  }, [threadId, projectPath]);
-
-  return (
-    <div className="flex-1 flex flex-col relative bg-background">
-      <div className="flex-1 p-2 bg-[#1a1b26]" ref={termRef} />
-      {!connected && !error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1b26] text-[#c0caf5] text-sm">
-          Connecting terminal...
-        </div>
-      )}
-      {error && (
-        <div className="absolute inset-0 flex items-center justify-center bg-[#1a1b26] text-red-400 text-sm px-4 text-center">
-          Terminal error: {error}
-        </div>
-      )}
     </div>
   );
 };

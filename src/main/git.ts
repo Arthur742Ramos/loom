@@ -108,11 +108,17 @@ export function parseDiff(raw: string): DiffFile[] {
 }
 
 function getGit(projectPath: string): SimpleGit {
-  if (!gitInstances.has(projectPath)) {
-    evictGitInstances();
-    gitInstances.set(projectPath, simpleGit(projectPath));
+  const existing = gitInstances.get(projectPath);
+  if (existing) {
+    // Move to end (most recently used) for LRU ordering.
+    gitInstances.delete(projectPath);
+    gitInstances.set(projectPath, existing);
+    return existing;
   }
-  return gitInstances.get(projectPath)!;
+  evictGitInstances();
+  const git = simpleGit(projectPath);
+  gitInstances.set(projectPath, git);
+  return git;
 }
 
 function isValidThreadId(threadId: string): boolean {

@@ -383,20 +383,32 @@ const appStore = create<AppState>()(
     }),
     {
       name: 'loom-state',
-      partialize: (state) => ({
-        githubUser: state.githubUser,
-        projects: state.projects,
-        projectPath: state.projectPath,
-        projectName: state.projectName,
-        selectedModel: state.selectedModel,
-        reasoningEffort: state.reasoningEffort,
-        permissionMode: state.permissionMode,
-        threads: state.threads,
-        activeThreadId: state.activeThreadId,
-        mcpServers: state.mcpServers,
-        showToolOutputDetails: state.showToolOutputDetails,
-        theme: state.theme,
-      }),
+      partialize: (state) => {
+        // Prune threads for persistence: keep last 50 messages per thread,
+        // and only keep the 100 most recent threads.
+        const MAX_THREADS = 100;
+        const MAX_MESSAGES_PER_THREAD = 50;
+        const trimmedThreads = state.threads
+          .slice(0, MAX_THREADS)
+          .map((t) => ({
+            ...t,
+            messages: t.messages.slice(-MAX_MESSAGES_PER_THREAD),
+          }));
+        return {
+          githubUser: state.githubUser,
+          projects: state.projects,
+          projectPath: state.projectPath,
+          projectName: state.projectName,
+          selectedModel: state.selectedModel,
+          reasoningEffort: state.reasoningEffort,
+          permissionMode: state.permissionMode,
+          threads: trimmedThreads,
+          activeThreadId: state.activeThreadId,
+          mcpServers: state.mcpServers,
+          showToolOutputDetails: state.showToolOutputDetails,
+          theme: state.theme,
+        };
+      },
       storage: {
         getItem: (name) => {
           try {

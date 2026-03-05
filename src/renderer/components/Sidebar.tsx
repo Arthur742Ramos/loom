@@ -43,6 +43,7 @@ export const Sidebar: React.FC = () => {
   const [showAgents, setShowAgents] = useState(false);
   const [agents, setAgents] = useState<{ name: string; path: string; description: string }[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
+  const [threadFilter, setThreadFilter] = useState('');
 
   const loadSkills = async () => {
     if (!projectPath || !window.electronAPI) return;
@@ -157,7 +158,7 @@ export const Sidebar: React.FC = () => {
   };
 
   return (
-    <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0" data-testid="sidebar">
+    <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0" data-testid="sidebar" aria-label="Sidebar navigation">
       {/* Brand */}
       <div className="px-5 mb-6 flex items-center gap-2.5 shrink-0">
         <LoomLogo className="w-7 h-7 p-1" />
@@ -167,7 +168,7 @@ export const Sidebar: React.FC = () => {
       {/* Scrollable body: nav + skills + threads */}
       <div className="flex-1 min-h-0 overflow-y-auto">
       {/* Nav items */}
-      <nav className="px-3 space-y-0.5 mb-6">
+      <nav className="px-3 space-y-0.5 mb-6" aria-label="Main navigation">
         <button
           data-testid="new-thread-button"
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors"
@@ -345,18 +346,37 @@ export const Sidebar: React.FC = () => {
           <button className="text-muted-foreground hover:text-foreground transition-colors p-1" onClick={() => handleNewThread()}>
             <FolderPlus className="w-4 h-4" strokeWidth={1.5} />
           </button>
-          <button className="text-muted-foreground hover:text-foreground transition-colors p-1">
+          <button
+            className={cn('text-muted-foreground hover:text-foreground transition-colors p-1', threadFilter && 'text-primary')}
+            onClick={() => setThreadFilter(threadFilter ? '' : ' ')}
+            title="Filter threads"
+          >
             <ListFilter className="w-4 h-4" strokeWidth={1.5} />
           </button>
         </div>
       </div>
+      {threadFilter !== '' && (
+        <div className="px-5 mb-2">
+          <input
+            className="w-full px-2.5 py-1.5 text-xs bg-secondary/60 border rounded-md text-foreground placeholder:text-muted-foreground outline-none focus:ring-1 focus:ring-primary"
+            placeholder="Filter threads..."
+            value={threadFilter.trim()}
+            onChange={(e) => setThreadFilter(e.target.value)}
+            autoFocus
+          />
+        </div>
+      )}
 
       {/* Projects & threads */}
       <div className="px-3">
         {projects.map((project) => {
-          const projectThreads = threads.filter((thread) =>
-            (thread.projectPath || projectPath) === project.path,
-          );
+          const projectThreads = threads.filter((thread) => {
+            if ((thread.projectPath || projectPath) !== project.path) return false;
+            if (threadFilter.trim()) {
+              return thread.title.toLowerCase().includes(threadFilter.trim().toLowerCase());
+            }
+            return true;
+          });
           const isActiveProject = projectPath === project.path;
           return (
             <div className="mb-3" key={project.path}>
