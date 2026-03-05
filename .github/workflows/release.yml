@@ -21,8 +21,16 @@ jobs:
           node-version: 20
           cache: npm
 
+      - name: Setup Python
+        id: setup-python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
       - name: Install dependencies
         run: npm ci
+        env:
+          PYTHON: ${{ steps.setup-python.outputs.python-path }}
 
       - name: Build
         run: npm run build
@@ -31,6 +39,7 @@ jobs:
         run: npx electron-builder --win
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHON: ${{ steps.setup-python.outputs.python-path }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

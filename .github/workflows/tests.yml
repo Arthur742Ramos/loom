@@ -20,8 +20,35 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Install Playwright dependencies
-        run: npx playwright install --with-deps chromium
+      - name: Install Linux runtime dependencies for Electron
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            xvfb \
+            xauth \
+            xdg-utils \
+            libgtk-3-0 \
+            libnss3 \
+            libgbm1 \
+            libxss1 \
+            libxtst6 \
+            libatspi2.0-0 \
+            libdrm2 \
+            libxcb-dri3-0 \
+            libnotify4
+          sudo apt-get install -y libasound2t64 || sudo apt-get install -y libasound2
+
+      - name: Install Playwright browser
+        run: npx playwright install chromium
+
+      - name: Verify Electron runtime
+        run: |
+          npx electron --version
+          missing_libs="$(ldd node_modules/electron/dist/electron | grep 'not found' || true)"
+          if [ -n "$missing_libs" ]; then
+            echo "$missing_libs"
+            exit 1
+          fi
 
       - name: Run test suite
         run: npm run test:ci
