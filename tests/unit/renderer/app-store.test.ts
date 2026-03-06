@@ -295,6 +295,45 @@ describe('appStore', () => {
 
       expect(useAppStore.getState().projects).toHaveLength(1);
     });
+
+    it('activates the latest thread for the selected project', () => {
+      useAppStore.getState().setProject('/tmp/a', 'a');
+      useAppStore.getState().createThread('a-1', 'local');
+      const latestAThreadId = useAppStore.getState().createThread('a-2', 'local');
+
+      useAppStore.getState().setProject('/tmp/b', 'b');
+      useAppStore.getState().createThread('b-1', 'local');
+
+      useAppStore.getState().setProject('/tmp/a', 'a');
+
+      const state = useAppStore.getState();
+      expect(state.activeThreadId).toBe(latestAThreadId);
+      expect(state.projectPath).toBe('/tmp/a');
+      expect(state.projectName).toBe('a');
+    });
+
+    it('clears the active thread when the selected project has no threads', () => {
+      useAppStore.getState().setProject('/tmp/a', 'a');
+      useAppStore.getState().createThread('a-1', 'local');
+
+      useAppStore.getState().setProject('/tmp/empty', 'empty');
+
+      const state = useAppStore.getState();
+      expect(state.activeThreadId).toBeNull();
+      expect(state.projectPath).toBe('/tmp/empty');
+      expect(state.projectName).toBe('empty');
+    });
+  });
+
+  describe('setActiveThread', () => {
+    it('clears invalid active thread ids', () => {
+      useAppStore.getState().setProject('/tmp/proj', 'proj');
+      useAppStore.getState().createThread('thread', 'local');
+
+      useAppStore.getState().setActiveThread('missing-thread');
+
+      expect(useAppStore.getState().activeThreadId).toBeNull();
+    });
   });
 
   // ─── removeThread ───────────────────────────────────────────────
@@ -324,6 +363,22 @@ describe('appStore', () => {
 
       expect(useAppStore.getState().threads).toHaveLength(1);
       expect(useAppStore.getState().activeThreadId).toBe(id2);
+    });
+
+    it('falls back to another thread when removing the active thread', () => {
+      useAppStore.getState().setProject('/tmp/proj', 'proj');
+      const firstThreadId = useAppStore.getState().createThread('t1', 'local');
+      const secondThreadId = useAppStore.getState().createThread('t2', 'local');
+
+      expect(useAppStore.getState().activeThreadId).toBe(secondThreadId);
+
+      useAppStore.getState().removeThread(secondThreadId);
+
+      const state = useAppStore.getState();
+      expect(state.threads).toHaveLength(1);
+      expect(state.activeThreadId).toBe(firstThreadId);
+      expect(state.projectPath).toBe('/tmp/proj');
+      expect(state.projectName).toBe('proj');
     });
   });
 });

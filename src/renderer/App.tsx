@@ -9,7 +9,7 @@ import { useShallow } from 'zustand/react/shallow';
 
 const App: React.FC = () => {
   const {
-    activeThreadId, projectPath, theme, createThread, setShowSettings,
+    activeThreadId, projectPath, theme, createThread, setShowSettings, setActiveThread, threads,
   } = useAppStore(
     useShallow((state) => ({
       activeThreadId: state.activeThreadId,
@@ -17,6 +17,8 @@ const App: React.FC = () => {
       theme: state.theme,
       createThread: state.createThread,
       setShowSettings: state.setShowSettings,
+      setActiveThread: state.setActiveThread,
+      threads: state.threads,
     })),
   );
 
@@ -36,6 +38,18 @@ const App: React.FC = () => {
     mq.addEventListener('change', handler);
     return () => mq.removeEventListener('change', handler);
   }, [theme]);
+
+  useEffect(() => {
+    if (!activeThreadId) return;
+
+    const activeThread = threads.find((thread) => thread.id === activeThreadId) || null;
+    if (activeThread?.projectPath === projectPath) {
+      return;
+    }
+
+    const projectThread = threads.find((thread) => thread.projectPath === projectPath) || null;
+    setActiveThread(projectThread?.id ?? null);
+  }, [activeThreadId, projectPath, setActiveThread, threads]);
 
   // Global keyboard shortcuts
   useEffect(() => {

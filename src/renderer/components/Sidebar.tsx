@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useMemo } from 'react';
 import { GitHubUser, useAppStore } from '../store/appStore';
 import { useShallow } from 'zustand/react/shallow';
 import {
@@ -19,6 +19,17 @@ interface ProjectMcpServer {
   command?: string;
   url?: string;
   args?: string[];
+}
+
+interface DiscoveryTestOverride {
+  mode?: 'loading' | 'error';
+  error?: string;
+}
+
+interface SidebarDiscoveryTestState {
+  skills?: DiscoveryTestOverride;
+  agents?: DiscoveryTestOverride;
+  mcp?: DiscoveryTestOverride;
 }
 
 interface AuthLoginCompletePayload {
@@ -49,6 +60,18 @@ interface ProjectBranchState {
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const getDiscoveryTestOverride = (
+  api: Window['electronAPI'] | null,
+  key: keyof SidebarDiscoveryTestState,
+): DiscoveryTestOverride | null => {
+  if (!api?.isTestMode || typeof window === 'undefined') return null;
+  return (
+    (window as Window & { __sidebarDiscoveryTestState?: SidebarDiscoveryTestState })
+      .__sidebarDiscoveryTestState?.[key]
+    ?? null
+  );
+};
 
 const createEmptyProjectBranchState = (): ProjectBranchState => ({
   branches: [],
@@ -214,13 +237,17 @@ export const Sidebar: React.FC = () => {
   const [showMcp, setShowMcp] = useState(false);
   const [mcpForm, setMcpForm] = useState({ name: '', command: '', url: '', args: '' });
   const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServer>>({});
+  const [projectMcpLoading, setProjectMcpLoading] = useState(false);
+  const [projectMcpError, setProjectMcpError] = useState<string | null>(null);
   const [branchStateByProject, setBranchStateByProject] = useState<Record<string, ProjectBranchState>>({});
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<MentionableEntry[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
+  const [skillsError, setSkillsError] = useState<string | null>(null);
   const [showAgents, setShowAgents] = useState(false);
   const [agents, setAgents] = useState<MentionableEntry[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentsError, setAgentsError] = useState<string | null>(null);
   const [showThreadFilter, setShowThreadFilter] = useState(false);
   const [threadFilter, setThreadFilter] = useState('');
   const [debouncedThreadFilter, setDebouncedThreadFilter] = useState('');
@@ -230,19 +257,27 @@ export const Sidebar: React.FC = () => {
   const agentsRequestIdRef = useRef(0);
   const projectMcpRequestIdRef = useRef(0);
   const branchRequestIdRef = useRef(0);
+  const api = typeof window !== 'undefined' ? window.electronAPI ?? null : null;
 
-  useEffect(() => {
-    latestProjectPathRef.current = projectPath;
-  }, [projectPath]);
+  latestProjectPathRef.current = projectPath;
 
   useEffect(() => () => {
     isMountedRef.current = false;
   }, []);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    skillsRequestIdRef.current += 1;
+    agentsRequestIdRef.current += 1;
+    projectMcpRequestIdRef.current += 1;
     setProjectMcp({});
+    setProjectMcpLoading(showMcp && Boolean(projectPath));
+    setProjectMcpError(null);
     setSkills([]);
+    setSkillsLoading(showSkills && Boolean(projectPath));
+    setSkillsError(null);
     setAgents([]);
+    setAgentsLoading(showAgents && Boolean(projectPath));
+    setAgentsError(null);
   }, [projectPath]);
 
   useEffect(() => {
@@ -287,11 +322,28 @@ export const Sidebar: React.FC = () => {
 
   const loadSkills = async () => {
     const targetProjectPath = projectPath;
-    if (!targetProjectPath || !window.electronAPI) return;
+    if (!targetProjectPath) return;
+    if (!api) {
+      setSkillsError('Electron bridge unavailable.');
+      setSkillsLoading(false);
+      return;
+    }
+    const testOverride = getDiscoveryTestOverride(api, 'skills');
+    if (testOverride?.mode === 'loading') {
+      setSkillsLoading(true);
+      setSkillsError(null);
+      return;
+    }
+    if (testOverride?.mode === 'error') {
+      setSkillsLoading(false);
+      setSkillsError(testOverride.error ?? 'Mock project skills failure');
+      return;
+    }
     const requestId = ++skillsRequestIdRef.current;
     setSkillsLoading(true);
+    setSkillsError(null);
     try {
-      const result = await window.electronAPI.invoke('agent:list-skills', targetProjectPath);
+      const result = await api.invoke('agent:list-skills', targetProjectPath);
       if (
         !isMountedRef.current
         || requestId !== skillsRequestIdRef.current
@@ -300,6 +352,7 @@ export const Sidebar: React.FC = () => {
         return;
       }
       setSkills(toMentionableEntries(result));
+      setSkillsError(null);
     } catch (error: unknown) {
       console.warn('Failed to load project skills:', getErrorMessage(error));
       if (
@@ -309,9 +362,13 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setSkills([]);
+      setSkillsError(getErrorMessage(error));
     } finally {
-      if (isMountedRef.current && requestId === skillsRequestIdRef.current) {
+      if (
+        isMountedRef.current
+        && requestId === skillsRequestIdRef.current
+        && latestProjectPathRef.current === targetProjectPath
+      ) {
         setSkillsLoading(false);
       }
     }
@@ -319,11 +376,28 @@ export const Sidebar: React.FC = () => {
 
   const loadAgents = async () => {
     const targetProjectPath = projectPath;
-    if (!targetProjectPath || !window.electronAPI) return;
+    if (!targetProjectPath) return;
+    if (!api) {
+      setAgentsError('Electron bridge unavailable.');
+      setAgentsLoading(false);
+      return;
+    }
+    const testOverride = getDiscoveryTestOverride(api, 'agents');
+    if (testOverride?.mode === 'loading') {
+      setAgentsLoading(true);
+      setAgentsError(null);
+      return;
+    }
+    if (testOverride?.mode === 'error') {
+      setAgentsLoading(false);
+      setAgentsError(testOverride.error ?? 'Mock project agents failure');
+      return;
+    }
     const requestId = ++agentsRequestIdRef.current;
     setAgentsLoading(true);
+    setAgentsError(null);
     try {
-      const result = await window.electronAPI.invoke('agent:list-agents', targetProjectPath);
+      const result = await api.invoke('agent:list-agents', targetProjectPath);
       if (
         !isMountedRef.current
         || requestId !== agentsRequestIdRef.current
@@ -332,6 +406,7 @@ export const Sidebar: React.FC = () => {
         return;
       }
       setAgents(toMentionableEntries(result));
+      setAgentsError(null);
     } catch (error: unknown) {
       console.warn('Failed to load project agents:', getErrorMessage(error));
       if (
@@ -341,9 +416,13 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setAgents([]);
+      setAgentsError(getErrorMessage(error));
     } finally {
-      if (isMountedRef.current && requestId === agentsRequestIdRef.current) {
+      if (
+        isMountedRef.current
+        && requestId === agentsRequestIdRef.current
+        && latestProjectPathRef.current === targetProjectPath
+      ) {
         setAgentsLoading(false);
       }
     }
@@ -351,10 +430,28 @@ export const Sidebar: React.FC = () => {
 
   const loadProjectMcp = async () => {
     const targetProjectPath = projectPath;
-    if (!targetProjectPath || !window.electronAPI) return;
+    if (!targetProjectPath) return;
+    if (!api) {
+      setProjectMcpError('Electron bridge unavailable.');
+      setProjectMcpLoading(false);
+      return;
+    }
+    const testOverride = getDiscoveryTestOverride(api, 'mcp');
+    if (testOverride?.mode === 'loading') {
+      setProjectMcpLoading(true);
+      setProjectMcpError(null);
+      return;
+    }
+    if (testOverride?.mode === 'error') {
+      setProjectMcpLoading(false);
+      setProjectMcpError(testOverride.error ?? 'Mock project MCP failure');
+      return;
+    }
     const requestId = ++projectMcpRequestIdRef.current;
+    setProjectMcpLoading(true);
+    setProjectMcpError(null);
     try {
-      const result = await window.electronAPI.invoke('agent:list-project-mcp', targetProjectPath);
+      const result = await api.invoke('agent:list-project-mcp', targetProjectPath);
       if (
         !isMountedRef.current
         || requestId !== projectMcpRequestIdRef.current
@@ -363,6 +460,7 @@ export const Sidebar: React.FC = () => {
         return;
       }
       setProjectMcp(toProjectMcpServers(result));
+      setProjectMcpError(null);
     } catch (error: unknown) {
       console.warn('Failed to load project MCP servers:', getErrorMessage(error));
       if (
@@ -372,7 +470,15 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setProjectMcp({});
+      setProjectMcpError(getErrorMessage(error));
+    } finally {
+      if (
+        isMountedRef.current
+        && requestId === projectMcpRequestIdRef.current
+        && latestProjectPathRef.current === targetProjectPath
+      ) {
+        setProjectMcpLoading(false);
+      }
     }
   };
 
@@ -439,8 +545,6 @@ export const Sidebar: React.FC = () => {
     }
     createThread('New thread', 'local');
   };
-
-  const api = typeof window !== 'undefined' ? window.electronAPI ?? null : null;
 
   const handleBranchChange = async (targetProjectPath: string, branchName: string) => {
     const normalizedBranchName = branchName.trim();
@@ -553,12 +657,34 @@ export const Sidebar: React.FC = () => {
     void loadBranches(projectPath);
   }, [projectPath]);
 
+  useEffect(() => {
+    if (!showSkills || !projectPath) return;
+    void loadSkills();
+  }, [showSkills, projectPath]);
+
+  useEffect(() => {
+    if (!showAgents || !projectPath) return;
+    void loadAgents();
+  }, [showAgents, projectPath]);
+
+  useEffect(() => {
+    if (!showMcp || !projectPath) return;
+    void loadProjectMcp();
+  }, [showMcp, projectPath]);
+
   const statusDot: Record<string, string> = {
     idle: 'bg-gray-300',
     running: 'bg-primary animate-pulse',
     completed: 'bg-green-500',
     error: 'bg-red-500',
   };
+  const inlineInfoPanelClasses = 'rounded-md border border-border/60 bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground/70 space-y-1';
+  const inlineErrorPanelClasses = 'rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[11px] text-destructive space-y-1';
+  const retryButtonClasses = 'inline-flex items-center rounded-md border border-destructive/30 px-2 py-1 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/10';
+  const projectMcpEntries = Object.entries(projectMcp);
+  const customMcpEntries = Object.entries(mcpServers);
+  const hasProjectMcp = projectMcpEntries.length > 0;
+  const hasCustomMcp = customMcpEntries.length > 0;
 
   return (
     <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0 border-r border-border/70 bg-background/70" data-testid="sidebar" aria-label="Sidebar navigation">
@@ -588,8 +714,7 @@ export const Sidebar: React.FC = () => {
             showMcp && 'bg-secondary',
           )}
           onClick={() => {
-            setShowMcp(!showMcp);
-            if (!showMcp) void loadProjectMcp();
+            setShowMcp((previous) => !previous);
           }}
         >
           <Monitor className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
@@ -597,11 +722,52 @@ export const Sidebar: React.FC = () => {
         </button>
         {showMcp && (
           <div className="ml-4 mr-2 mb-1 mt-0.5 space-y-1.5">
+            {projectMcpLoading && (
+              <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite" data-testid="mcp-loading">
+                {hasProjectMcp || hasCustomMcp
+                  ? 'Refreshing project MCP servers...'
+                  : 'Loading project MCP servers...'}
+              </p>
+            )}
+            {projectMcpError && (
+              <div className={inlineErrorPanelClasses} data-testid="mcp-error" role="alert">
+                <p className="font-medium">Couldn&apos;t load project MCP servers.</p>
+                <p className="break-words text-[10px] text-destructive/80">{projectMcpError}</p>
+                <button
+                  type="button"
+                  className={retryButtonClasses}
+                  data-testid="mcp-retry"
+                  onClick={() => {
+                    void loadProjectMcp();
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!projectPath && !projectMcpLoading && !projectMcpError && (
+              <div className={inlineInfoPanelClasses} data-testid="mcp-no-project">
+                <p className="font-medium text-foreground">Open a project to discover MCP servers.</p>
+                <p className="text-[10px]">
+                  Loom looks for <code className="bg-secondary px-1 rounded">.vscode/mcp.json</code> and{' '}
+                  <code className="bg-secondary px-1 rounded">.github/copilot/mcp.json</code>.
+                </p>
+              </div>
+            )}
+            {projectPath && !projectMcpLoading && !projectMcpError && !hasProjectMcp && !hasCustomMcp && (
+              <div className={inlineInfoPanelClasses} data-testid="mcp-empty-state">
+                <p className="font-medium text-foreground">No MCP servers found.</p>
+                <p className="text-[10px]">
+                  Add <code className="bg-secondary px-1 rounded">.vscode/mcp.json</code> or{' '}
+                  <code className="bg-secondary px-1 rounded">.github/copilot/mcp.json</code>, or add a custom server below.
+                </p>
+              </div>
+            )}
             {/* Project-discovered MCP servers */}
-            {Object.keys(projectMcp).length > 0 && (
+            {hasProjectMcp && (
               <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-1">From project</p>
             )}
-            {Object.entries(projectMcp).map(([name, config]) => (
+            {projectMcpEntries.map(([name, config]) => (
               <div key={`proj-${name}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
                 <span className="text-blue-400">●</span>
                 <div className="min-w-0 flex-1">
@@ -611,10 +777,10 @@ export const Sidebar: React.FC = () => {
               </div>
             ))}
             {/* User-configured MCP servers */}
-            {Object.keys(mcpServers).length > 0 && (
+            {hasCustomMcp && (
               <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-1">Custom</p>
             )}
-            {Object.entries(mcpServers).map(([name, config]) => (
+            {customMcpEntries.map(([name, config]) => (
               <div key={name} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
                 <span className="text-green-500">●</span>
                 <div className="min-w-0 flex-1">
@@ -681,18 +847,54 @@ export const Sidebar: React.FC = () => {
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
             showSkills && 'bg-secondary',
           )}
-          onClick={() => { setShowSkills(!showSkills); if (!showSkills) loadSkills(); }}
+          onClick={() => {
+            setShowSkills((previous) => !previous);
+          }}
         >
           <LayoutGrid className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           Skills
         </button>
         {showSkills && (
           <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
-            {skillsLoading && <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite">Loading...</p>}
-            {!skillsLoading && skills.length === 0 && (
-              <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
-                <p>No skills found.</p>
-                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code></p>
+            {skillsLoading && (
+              <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite" data-testid="skills-loading">
+                {skills.length > 0 ? 'Refreshing project skills...' : 'Loading project skills...'}
+              </p>
+            )}
+            {skillsError && (
+              <div className={inlineErrorPanelClasses} data-testid="skills-error" role="alert">
+                <p className="font-medium">Couldn&apos;t load project skills.</p>
+                <p className="break-words text-[10px] text-destructive/80">{skillsError}</p>
+                <button
+                  type="button"
+                  className={retryButtonClasses}
+                  data-testid="skills-retry"
+                  onClick={() => {
+                    void loadSkills();
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!projectPath && !skillsLoading && !skillsError && (
+              <div className={inlineInfoPanelClasses} data-testid="skills-no-project">
+                <p className="font-medium text-foreground">Open a project to discover skills.</p>
+                <p className="text-[10px]">
+                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
+                  <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code> or{' '}
+                  <code className="bg-secondary px-1 rounded">.copilot/skills/</code>.
+                </p>
+              </div>
+            )}
+            {projectPath && !skillsLoading && !skillsError && skills.length === 0 && (
+              <div className={inlineInfoPanelClasses} data-testid="skills-empty-state">
+                <p className="font-medium text-foreground">No project skills found.</p>
+                <p className="text-[10px]">
+                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
+                  <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code> or{' '}
+                  <code className="bg-secondary px-1 rounded">.copilot/skills/</code>.
+                </p>
               </div>
             )}
             {skills.map((skill, i) => (
@@ -720,18 +922,52 @@ export const Sidebar: React.FC = () => {
             'w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm text-foreground hover:bg-secondary transition-colors',
             showAgents && 'bg-secondary',
           )}
-          onClick={() => { setShowAgents(!showAgents); if (!showAgents) loadAgents(); }}
+          onClick={() => {
+            setShowAgents((previous) => !previous);
+          }}
         >
           <GitBranch className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
           Agents
         </button>
         {showAgents && (
           <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
-            {agentsLoading && <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite">Loading...</p>}
-            {!agentsLoading && agents.length === 0 && (
-              <div className="text-[11px] text-muted-foreground/60 py-1 space-y-1">
-                <p>No agents found.</p>
-                <p className="text-[10px]">Add <code className="bg-secondary px-1 rounded">.md</code> files to <code className="bg-secondary px-1 rounded">.github/agents/</code></p>
+            {agentsLoading && (
+              <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite" data-testid="agents-loading">
+                {agents.length > 0 ? 'Refreshing project agents...' : 'Loading project agents...'}
+              </p>
+            )}
+            {agentsError && (
+              <div className={inlineErrorPanelClasses} data-testid="agents-error" role="alert">
+                <p className="font-medium">Couldn&apos;t load project agents.</p>
+                <p className="break-words text-[10px] text-destructive/80">{agentsError}</p>
+                <button
+                  type="button"
+                  className={retryButtonClasses}
+                  data-testid="agents-retry"
+                  onClick={() => {
+                    void loadAgents();
+                  }}
+                >
+                  Retry
+                </button>
+              </div>
+            )}
+            {!projectPath && !agentsLoading && !agentsError && (
+              <div className={inlineInfoPanelClasses} data-testid="agents-no-project">
+                <p className="font-medium text-foreground">Open a project to discover custom agents.</p>
+                <p className="text-[10px]">
+                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
+                  <code className="bg-secondary px-1 rounded">.github/agents/</code>.
+                </p>
+              </div>
+            )}
+            {projectPath && !agentsLoading && !agentsError && agents.length === 0 && (
+              <div className={inlineInfoPanelClasses} data-testid="agents-empty-state">
+                <p className="font-medium text-foreground">No project agents found.</p>
+                <p className="text-[10px]">
+                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
+                  <code className="bg-secondary px-1 rounded">.github/agents/</code>.
+                </p>
               </div>
             )}
             {agents.map((agent, i) => (

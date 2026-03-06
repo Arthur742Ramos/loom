@@ -64,6 +64,8 @@ interface CopilotClientConstructor {
 
 let CopilotClientClass: CopilotClientConstructor | null = null;
 let clientPromise: Promise<CopilotClient> | null = null;
+let clientFactoryForTests: (() => CopilotClient | Promise<CopilotClient>) | null = null;
+let clientGeneration = 0;
 
 // Cache session IDs (not objects) so sessions always use the current connection.
 const threadSessionIds = new Map<string, string>();
@@ -72,6 +74,30 @@ const inFlightSessions = new Map<string, AgentSession>();
 const canceledThreads = new Set<string>();
 // Serialize per-thread requests — each thread gets a queue lock.
 const threadLocks = new Map<string, Promise<void>>();
+const LIST_MODELS_CACHE_TTL_MS = 30000;
+const LIST_MODELS_FAILURE_CACHE_TTL_MS = 5000;
+
+interface ListedModelInfo {
+  id: string;
+  label: string;
+  provider: string;
+  supportedReasoningEfforts: string[];
+}
+
+interface ListModelsSuccessResult {
+  success: true;
+  models: ListedModelInfo[];
+}
+
+interface ListModelsFailureResult {
+  success: false;
+  error: string;
+}
+
+type ListModelsResult = ListModelsSuccessResult | ListModelsFailureResult;
+
+let cachedModelListResult: { expiresAt: number; value: ListModelsResult } | null = null;
+let listModelsPromise: Promise<ListModelsResult> | null = null;
 
 /** Test helper: report how many per-thread queue locks are currently active. */
 export function getThreadLockCountForTests(): number {
@@ -126,6 +152,121 @@ const asOptionalPermissionMode = (value: unknown): AgentRequest['permissionMode'
   value === 'ask' || value === 'auto' || value === 'deny'
     ? value
     : undefined;
+
+function resolveProjectDirectory(projectPath: unknown): string | null {
+  if (!isNonEmptyString(projectPath)) return null;
+  const candidate = projectPath.trim();
+  if (!path.isAbsolute(candidate) || candidate.includes('\0')) return null;
+  try {
+    const resolved = fs.realpathSync(candidate);
+    return fs.statSync(resolved).isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+const readUtf8File = (filePath: string): string | null => {
+  try {
+    return fs.readFileSync(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+};
+
+const listMarkdownFiles = (directory: string): string[] => {
+  try {
+    return fs.readdirSync(directory).filter((file) => file.endsWith('.md'));
+  } catch {
+    return [];
+  }
+};
+
+const getFirstMeaningfulLine = (content: string, ignoreYamlFrontmatter = false): string => {
+  const lines = content.split(/\r?\n/);
+  let startIndex = 0;
+
+  if (ignoreYamlFrontmatter) {
+    while (startIndex < lines.length && !lines[startIndex].trim()) {
+      startIndex += 1;
+    }
+    if (lines[startIndex]?.trim() === '---') {
+      startIndex += 1;
+      while (startIndex < lines.length && lines[startIndex].trim() !== '---') {
+        startIndex += 1;
+      }
+      if (startIndex < lines.length) {
+        startIndex += 1;
+      }
+    }
+  }
+
+  for (let index = startIndex; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (!line.trim()) continue;
+    return line.replace(/^#+\s*/, '');
+  }
+
+  return '';
+};
+
+const normalizeReasoningEfforts = (value: unknown): string[] => {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const normalized: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') continue;
+    const trimmed = entry.trim();
+    if (!trimmed || seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    normalized.push(trimmed);
+  }
+  return normalized;
+};
+
+function normalizeModelList(models: CopilotModelDescriptor[]): ListedModelInfo[] {
+  const deduped = new Map<string, ListedModelInfo>();
+  for (const model of models) {
+    const id = isNonEmptyString(model.id)
+      ? model.id.trim()
+      : isNonEmptyString(model.name)
+        ? model.name.trim()
+        : '';
+    if (!id) continue;
+
+    const label = isNonEmptyString(model.name) ? model.name.trim() : id;
+    const supportedReasoningEfforts = normalizeReasoningEfforts(model.supportedReasoningEfforts);
+    const existing = deduped.get(id);
+    if (!existing) {
+      deduped.set(id, {
+        id,
+        label,
+        provider: inferProvider(id),
+        supportedReasoningEfforts,
+      });
+      continue;
+    }
+
+    if (existing.label === existing.id && label !== id) {
+      existing.label = label;
+    }
+    if (supportedReasoningEfforts.length > 0) {
+      existing.supportedReasoningEfforts = normalizeReasoningEfforts([
+        ...existing.supportedReasoningEfforts,
+        ...supportedReasoningEfforts,
+      ]);
+    }
+  }
+  return [...deduped.values()];
+}
+
+const cacheModelListResult = (value: ListModelsResult, generation: number): ListModelsResult => {
+  if (clientGeneration !== generation) return value;
+  cachedModelListResult = {
+    expiresAt: Date.now() + (value.success ? LIST_MODELS_CACHE_TTL_MS : LIST_MODELS_FAILURE_CACHE_TTL_MS),
+    value,
+  };
+  return value;
+};
 
 const normalizeCustomAgents = (value: unknown): AgentRequest['customAgents'] => {
   if (!Array.isArray(value)) return undefined;
@@ -526,6 +667,9 @@ async function loadClientClass(): Promise<CopilotClientConstructor> {
 async function getClient(): Promise<CopilotClient> {
   if (!clientPromise) {
     clientPromise = (async () => {
+      if (clientFactoryForTests) {
+        return clientFactoryForTests();
+      }
       const CopilotClient = await loadClientClass();
       return new CopilotClient({
         cliPath: findCopilotPath(),
@@ -538,9 +682,63 @@ async function getClient(): Promise<CopilotClient> {
   return clientPromise;
 }
 
+async function fetchModelList(client: CopilotClient): Promise<ListModelsSuccessResult> {
+  await client.start?.();
+  client.modelsCache = null;
+  return {
+    success: true,
+    models: normalizeModelList(await client.listModels()),
+  };
+}
+
+async function getListModelsResult(): Promise<ListModelsResult> {
+  if (cachedModelListResult && cachedModelListResult.expiresAt > Date.now()) {
+    return cachedModelListResult.value;
+  }
+
+  if (!listModelsPromise) {
+    let currentPromise: Promise<ListModelsResult> | null = null;
+    currentPromise = (async () => {
+      const initialGeneration = clientGeneration;
+      try {
+        const initialClient = await getClient();
+        return cacheModelListResult(await fetchModelList(initialClient), initialGeneration);
+      } catch (err: unknown) {
+        if (!isConnectionError(err)) {
+          return cacheModelListResult({ success: false, error: getErrorMessage(err) }, initialGeneration);
+        }
+
+        await resetClient();
+        const retryGeneration = clientGeneration;
+        try {
+          const recoveredClient = await getClient();
+          return cacheModelListResult(await fetchModelList(recoveredClient), retryGeneration);
+        } catch (retryErr: unknown) {
+          return cacheModelListResult({ success: false, error: getErrorMessage(retryErr) }, retryGeneration);
+        }
+      } finally {
+        if (listModelsPromise === currentPromise) {
+          listModelsPromise = null;
+        }
+      }
+    })();
+    listModelsPromise = currentPromise;
+  }
+
+  return listModelsPromise;
+}
+
 /** Inject or clear a mock client for unit tests. */
-export function setClientForTests(client: CopilotClient | null): void {
-  clientPromise = client ? Promise.resolve(client) : null;
+export function setClientForTests(client: CopilotClient | (() => CopilotClient | Promise<CopilotClient>) | null): void {
+  clientGeneration += 1;
+  cachedModelListResult = null;
+  listModelsPromise = null;
+  clientFactoryForTests = typeof client === 'function' ? client : null;
+  clientPromise = typeof client === 'function'
+    ? null
+    : client
+      ? Promise.resolve(client)
+      : null;
   if (!client) {
     CopilotClientClass = null;
   }
@@ -548,6 +746,9 @@ export function setClientForTests(client: CopilotClient | null): void {
 
 async function resetClient(): Promise<void> {
   const previousClientPromise = clientPromise;
+  clientGeneration += 1;
+  cachedModelListResult = null;
+  listModelsPromise = null;
   clientPromise = null;
   threadSessionIds.clear();
   inFlightSessions.clear();
@@ -578,39 +779,41 @@ export interface ProjectAgentConfig {
 
 /** Load local markdown agents from .github/agents for prompt-time discovery. */
 export function loadAgentsFromProject(cwd?: string): ProjectAgentConfig[] {
-  if (!cwd) return [];
-  const agentDir = path.join(cwd, '.github', 'agents');
-  try {
-    if (!fs.existsSync(agentDir)) return [];
-    return fs.readdirSync(agentDir)
-      .filter(f => f.endsWith('.md'))
-      .map(f => {
-        const content = fs.readFileSync(path.join(agentDir, f), 'utf-8');
-        const name = f.replace(/\.md$/, '').replace(/\.agent$/, '');
-        const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || name;
-        return {
-          name,
-          displayName: firstLine.substring(0, 60),
-          description: firstLine.substring(0, 100),
-          prompt: content,
-        };
-      });
-  } catch { return []; }
+  const projectRoot = resolveProjectDirectory(cwd);
+  if (!projectRoot) return [];
+  const agentDir = path.join(projectRoot, '.github', 'agents');
+  if (!fs.existsSync(agentDir)) return [];
+  return listMarkdownFiles(agentDir).flatMap((file) => {
+    const filePath = path.join(agentDir, file);
+    const content = readUtf8File(filePath);
+    if (content === null) return [];
+    const name = file.replace(/\.md$/, '').replace(/\.agent$/, '');
+    const firstLine = getFirstMeaningfulLine(content) || name;
+    return [{
+      name,
+      displayName: firstLine.substring(0, 60),
+      description: firstLine.substring(0, 100),
+      prompt: content,
+    }];
+  });
 }
 
 /** Load and normalize project MCP server definitions from supported config files. */
 export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpServerConfig> {
-  if (!cwd) return {};
+  const projectRoot = resolveProjectDirectory(cwd);
+  if (!projectRoot) return {};
   const candidates = [
-    path.join(cwd, '.vscode', 'mcp.json'),
-    path.join(cwd, '.github', 'copilot', 'mcp.json'),
+    path.join(projectRoot, '.vscode', 'mcp.json'),
+    path.join(projectRoot, '.github', 'copilot', 'mcp.json'),
   ];
   for (const file of candidates) {
     try {
       if (!fs.existsSync(file)) continue;
-      const raw = JSON.parse(fs.readFileSync(file, 'utf-8'));
+      const content = readUtf8File(file);
+      if (content === null) continue;
+      const raw = JSON.parse(content);
       const serversCandidate = isPlainObject(raw) && isPlainObject(raw.servers) ? raw.servers : raw;
-      if (!isPlainObject(serversCandidate)) return {};
+      if (!isPlainObject(serversCandidate)) continue;
       const result: Record<string, NormalizedMcpServerConfig> = {};
       for (const [name, cfg] of Object.entries(serversCandidate)) {
         const normalized = normalizeMcpServerConfig(cfg);
@@ -625,10 +828,11 @@ export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpSe
 
 /** Return all existing skill directories that should be passed to the SDK session config. */
 export function getProjectSkillDirectories(cwd?: string): string[] {
-  if (!cwd) return [];
+  const projectRoot = resolveProjectDirectory(cwd);
+  if (!projectRoot) return [];
   const candidates = [
-    path.join(cwd, '.github', 'copilot', 'skills'),
-    path.join(cwd, '.copilot', 'skills'),
+    path.join(projectRoot, '.github', 'copilot', 'skills'),
+    path.join(projectRoot, '.copilot', 'skills'),
   ];
   const seen = new Set<string>();
   return candidates.filter((dir) => {
@@ -977,32 +1181,7 @@ export function setupAgentHandlers() {
   });
 
   ipcMain.handle('agent:list-models', async () => {
-    try {
-      const client = await getClient();
-      // Ensure the client connection is established (listModels doesn't auto-start).
-      await client.start?.();
-      // Clear the SDK's internal cache so we always fetch a fresh list.
-      client.modelsCache = null;
-      const models = await client.listModels();
-      return {
-        success: true,
-        models: models.map((model) => {
-          const id = model.id || model.name || 'unknown-model';
-          const label = model.name || model.id || id;
-          const supportedReasoningEfforts = Array.isArray(model.supportedReasoningEfforts)
-            ? model.supportedReasoningEfforts.filter((entry): entry is string => typeof entry === 'string')
-            : [];
-          return {
-            id,
-            label,
-            provider: inferProvider(id),
-            supportedReasoningEfforts,
-          };
-        }),
-      };
-    } catch (err: unknown) {
-      return { success: false, error: getErrorMessage(err) };
-    }
+    return getListModelsResult();
   });
 
   ipcMain.on('agent:cancel', async (_event, threadId: string) => {
@@ -1020,53 +1199,55 @@ export function setupAgentHandlers() {
 
   // List skill files from the project.
   ipcMain.handle('agent:list-skills', async (_event, projectPath: string) => {
+    const projectRoot = resolveProjectDirectory(projectPath);
+    if (!projectRoot) return [];
     const results: { name: string; path: string; description: string }[] = [];
 
     // copilot-instructions.md
-    const instructionsPath = path.join(projectPath, '.github', 'copilot-instructions.md');
+    const instructionsPath = path.join(projectRoot, '.github', 'copilot-instructions.md');
     if (fs.existsSync(instructionsPath)) {
       results.push({ name: 'copilot-instructions', path: instructionsPath, description: 'Project-level instructions' });
     }
 
     // Skill directories
-    for (const dir of getProjectSkillDirectories(projectPath)) {
-      try {
-        if (!fs.existsSync(dir)) continue;
-        for (const file of fs.readdirSync(dir).filter(f => f.endsWith('.md'))) {
-          const filePath = path.join(dir, file);
-          const content = fs.readFileSync(filePath, 'utf-8');
-          const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '') || '';
-          results.push({ name: file.replace(/\.md$/, ''), path: filePath, description: firstLine.substring(0, 100) });
-        }
-      } catch {}
+    for (const dir of getProjectSkillDirectories(projectRoot)) {
+      for (const file of listMarkdownFiles(dir)) {
+        const filePath = path.join(dir, file);
+        const content = readUtf8File(filePath);
+        if (content === null) continue;
+        const firstLine = getFirstMeaningfulLine(content);
+        results.push({ name: file.replace(/\.md$/, ''), path: filePath, description: firstLine.substring(0, 100) });
+      }
     }
     return results;
   });
 
   // List custom agents from the project.
   ipcMain.handle('agent:list-agents', async (_event, projectPath: string) => {
+    const projectRoot = resolveProjectDirectory(projectPath);
+    if (!projectRoot) return [];
     const results: { name: string; path: string; description: string }[] = [];
-    const agentDir = path.join(projectPath, '.github', 'agents');
-    try {
-      if (fs.existsSync(agentDir)) {
-        for (const file of fs.readdirSync(agentDir).filter(f => f.endsWith('.md'))) {
-          const filePath = path.join(agentDir, file);
-          const content = fs.readFileSync(filePath, 'utf-8');
-          const firstLine = content.split('\n').find(l => l.trim())?.replace(/^#+\s*/, '').replace(/^---\s*$/, '') || '';
-          results.push({
-            name: file.replace(/\.md$/, '').replace(/\.agent$/, ''),
-            path: filePath,
-            description: firstLine.substring(0, 100),
-          });
-        }
-      }
-    } catch {}
+    const agentDir = path.join(projectRoot, '.github', 'agents');
+    if (!fs.existsSync(agentDir)) return results;
+    for (const file of listMarkdownFiles(agentDir)) {
+      const filePath = path.join(agentDir, file);
+      const content = readUtf8File(filePath);
+      if (content === null) continue;
+      const firstLine = getFirstMeaningfulLine(content, true);
+      results.push({
+        name: file.replace(/\.md$/, '').replace(/\.agent$/, ''),
+        path: filePath,
+        description: firstLine.substring(0, 100),
+      });
+    }
     return results;
   });
 
   // List MCP servers discovered from project config files.
   ipcMain.handle('agent:list-project-mcp', async (_event, projectPath: string) => {
-    return loadMcpFromProject(projectPath);
+    const projectRoot = resolveProjectDirectory(projectPath);
+    if (!projectRoot) return {};
+    return loadMcpFromProject(projectRoot);
   });
 
   // Warm up the SDK client in the background so the first user message doesn't

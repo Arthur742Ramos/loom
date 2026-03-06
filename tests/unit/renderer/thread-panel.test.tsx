@@ -271,6 +271,59 @@ describe('ThreadPanel', () => {
     expect(ipcRenderer.sendReply).toHaveBeenCalledWith('ask-reply-2', 'yes');
   });
 
+  it('keeps unsent drafts scoped to each thread and preserves the next thread after deletion', async () => {
+    const store = useAppStore.getState();
+    const secondThreadId = store.createThread('Second thread', 'local');
+    store.setActiveThread(threadId);
+
+    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+
+    const input = screen.getByTestId('thread-input') as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: 'Draft for thread one' } });
+    expect(input).toHaveValue('Draft for thread one');
+
+    act(() => {
+      useAppStore.getState().setActiveThread(secondThreadId);
+    });
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Second thread' })).toBeInTheDocument());
+    expect(screen.getByTestId('thread-input')).toHaveValue('');
+
+    fireEvent.change(screen.getByTestId('thread-input'), { target: { value: 'Draft for thread two' } });
+    expect(screen.getByTestId('thread-input')).toHaveValue('Draft for thread two');
+
+    act(() => {
+      useAppStore.getState().setActiveThread(threadId);
+    });
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Test thread' })).toBeInTheDocument());
+    expect(screen.getByTestId('thread-input')).toHaveValue('Draft for thread one');
+
+    act(() => {
+      useAppStore.getState().removeThread(threadId);
+    });
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Second thread' })).toBeInTheDocument());
+    expect(screen.getByTestId('thread-input')).toHaveValue('Draft for thread two');
+  });
+
+  it('cancels title editing when switching threads', async () => {
+    const store = useAppStore.getState();
+    const secondThreadId = store.createThread('Second thread', 'local');
+    store.setActiveThread(threadId);
+
+    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+
+    fireEvent.doubleClick(screen.getByRole('heading', { name: 'Test thread' }));
+    const titleInput = screen.getByDisplayValue('Test thread');
+    fireEvent.change(titleInput, { target: { value: 'Draft rename' } });
+
+    act(() => {
+      useAppStore.getState().setActiveThread(secondThreadId);
+    });
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Second thread' })).toBeInTheDocument());
+    expect(screen.queryByDisplayValue('Draft rename')).not.toBeInTheDocument();
+    expect(useAppStore.getState().threads.find((thread) => thread.id === secondThreadId)?.title).toBe('Second thread');
+  });
+
   it('prevents sending another prompt while the thread is running', () => {
     useAppStore.getState().updateThread(threadId, { status: 'running' });
     render(<TooltipProvider><ThreadPanel /></TooltipProvider>);

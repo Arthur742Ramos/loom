@@ -43,6 +43,22 @@ describe('Sidebar', () => {
     expect(screen.getByText('Choose a folder to start')).toBeInTheDocument();
   });
 
+  it('shows inline discovery guidance without an active project', () => {
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+
+    expect(screen.getByTestId('mcp-no-project')).toHaveTextContent('Open a project to discover MCP servers.');
+    expect(screen.getByTestId('skills-no-project')).toHaveTextContent('Open a project to discover skills.');
+    expect(screen.getByTestId('agents-no-project')).toHaveTextContent('Open a project to discover custom agents.');
+
+    const discoveryCalls = ipcRenderer.invoke.mock.calls
+      .filter(([channel]) => String(channel).startsWith('agent:list-'));
+    expect(discoveryCalls).toHaveLength(0);
+  });
+
   it('creates a new thread for the active project', async () => {
     useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
 
@@ -129,7 +145,74 @@ describe('Sidebar', () => {
     );
   });
 
-  it('ignores stale skills/agents/MCP loader results after project changes', async () => {
+  it('shows helpful empty states when discovery finds nothing for the active project', async () => {
+    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+
+    await waitFor(() => expect(screen.getByTestId('mcp-empty-state')).toBeInTheDocument());
+    expect(screen.getByTestId('skills-empty-state')).toHaveTextContent('No project skills found.');
+    expect(screen.getByTestId('agents-empty-state')).toHaveTextContent('No project agents found.');
+  });
+
+  it('shows inline errors and retries discovery loaders', async () => {
+    const callCounts = new Map<string, number>();
+    ipcRenderer.invoke.mockImplementation(async (channel: string, projectPath?: string, branchName?: string) => {
+      if (channel === 'auth:get-user') return { authenticated: false };
+      if (channel === 'git:list-branches') {
+        return {
+          branches: ['main', 'feature/neat-switcher'],
+          current: 'main',
+          detached: false,
+        };
+      }
+      if (channel === 'git:checkout') {
+        return { success: true, current: branchName };
+      }
+      if (channel === 'agent:list-skills' || channel === 'agent:list-agents' || channel === 'agent:list-project-mcp') {
+        const nextCount = (callCounts.get(channel) ?? 0) + 1;
+        callCounts.set(channel, nextCount);
+        if (nextCount === 1) {
+          throw new Error(`${channel} failed`);
+        }
+      }
+      if (channel === 'agent:list-skills') {
+        return [{ name: 'skill-success', path: `${projectPath}\\skill.md`, description: 'Skill retry' }];
+      }
+      if (channel === 'agent:list-agents') {
+        return [{ name: 'agent-success', path: `${projectPath}\\agent.md`, description: 'Agent retry' }];
+      }
+      if (channel === 'agent:list-project-mcp') {
+        return { 'mcp-success': { command: 'npx', args: ['retry'] } };
+      }
+      return null;
+    });
+    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+
+    await waitFor(() => expect(screen.getByTestId('mcp-error')).toBeInTheDocument());
+    expect(screen.getByTestId('skills-error')).toHaveTextContent("Couldn't load project skills.");
+    expect(screen.getByTestId('agents-error')).toHaveTextContent("Couldn't load project agents.");
+
+    fireEvent.click(screen.getByTestId('mcp-retry'));
+    fireEvent.click(screen.getByTestId('skills-retry'));
+    fireEvent.click(screen.getByTestId('agents-retry'));
+
+    await waitFor(() => expect(screen.getByText('mcp-success')).toBeInTheDocument());
+    expect(screen.getByText('skill-success')).toBeInTheDocument();
+    expect(screen.getByText('agent-success')).toBeInTheDocument();
+  });
+
+  it('reloads expanded skills/agents/MCP sections on project change and ignores stale results', async () => {
     const deferred = <T,>() => {
       let resolve!: (value: T) => void;
       const promise = new Promise<T>((res) => { resolve = res; });
@@ -159,51 +242,45 @@ describe('Sidebar', () => {
 
     const store = useAppStore.getState();
     store.setProject('/tmp/project-a', 'project-a');
-    store.setProject('/tmp/project-b', 'project-b');
-    store.setProject('/tmp/project-a', 'project-a');
 
     render(<Sidebar />);
 
-    fireEvent.click(screen.getByText('Skills')); // load A
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId('skills-loading')).toBeInTheDocument();
+      expect(screen.getByTestId('agents-loading')).toBeInTheDocument();
+      expect(screen.getByTestId('mcp-loading')).toBeInTheDocument();
+    });
+
     act(() => {
       useAppStore.getState().setProject('/tmp/project-b', 'project-b');
     });
-    fireEvent.click(screen.getByText('Skills')); // close
-    fireEvent.click(screen.getByText('Skills')); // load B
+
+    await waitFor(() => {
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-skills', '/tmp/project-b');
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-agents', '/tmp/project-b');
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-project-mcp', '/tmp/project-b');
+    });
 
     skillsB.resolve([{ name: 'skill-b', path: '/b.md', description: 'B' }]);
-    await waitFor(() => expect(screen.getByText('skill-b')).toBeInTheDocument());
-    skillsA.resolve([{ name: 'skill-a', path: '/a.md', description: 'A' }]);
-    await waitFor(() => expect(screen.queryByText('skill-a')).not.toBeInTheDocument());
-
-    act(() => {
-      useAppStore.getState().setProject('/tmp/project-a', 'project-a');
-    });
-    fireEvent.click(screen.getByText('Agents')); // load A
-    act(() => {
-      useAppStore.getState().setProject('/tmp/project-b', 'project-b');
-    });
-    fireEvent.click(screen.getByText('Agents')); // close
-    fireEvent.click(screen.getByText('Agents')); // load B
-
     agentsB.resolve([{ name: 'agent-b', path: '/b.agent.md', description: 'B' }]);
-    await waitFor(() => expect(screen.getByText('agent-b')).toBeInTheDocument());
-    agentsA.resolve([{ name: 'agent-a', path: '/a.agent.md', description: 'A' }]);
-    await waitFor(() => expect(screen.queryByText('agent-a')).not.toBeInTheDocument());
-
-    act(() => {
-      useAppStore.getState().setProject('/tmp/project-a', 'project-a');
-    });
-    fireEvent.click(screen.getByText('MCP Servers')); // load A
-    act(() => {
-      useAppStore.getState().setProject('/tmp/project-b', 'project-b');
-    });
-    fireEvent.click(screen.getByText('MCP Servers')); // close
-    fireEvent.click(screen.getByText('MCP Servers')); // load B
-
     mcpB.resolve({ 'mcp-b': { command: 'npx', args: ['b'] } });
-    await waitFor(() => expect(screen.getByText('mcp-b')).toBeInTheDocument());
+
+    await waitFor(() => expect(screen.getByText('skill-b')).toBeInTheDocument());
+    expect(screen.getByText('agent-b')).toBeInTheDocument();
+    expect(screen.getByText('mcp-b')).toBeInTheDocument();
+
+    skillsA.resolve([{ name: 'skill-a', path: '/a.md', description: 'A' }]);
+    agentsA.resolve([{ name: 'agent-a', path: '/a.agent.md', description: 'A' }]);
     mcpA.resolve({ 'mcp-a': { command: 'npx', args: ['a'] } });
-    await waitFor(() => expect(screen.queryByText('mcp-a')).not.toBeInTheDocument());
+
+    await waitFor(() => {
+      expect(screen.queryByText('skill-a')).not.toBeInTheDocument();
+      expect(screen.queryByText('agent-a')).not.toBeInTheDocument();
+      expect(screen.queryByText('mcp-a')).not.toBeInTheDocument();
+    });
   });
 });

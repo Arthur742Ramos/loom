@@ -16,6 +16,7 @@ import { TokenCounter } from './TokenCounter';
 
 const THINKING_SUMMARY_LIMIT = 60;
 const THINKING_PREVIEW_LIMIT = 500;
+const THREAD_ID_SEPARATOR = '\u0000';
 
 type PendingPermissionRequest = {
   kind: string;
@@ -87,6 +88,18 @@ const previewThinking = (thinking: string, showFull: boolean): string => {
   return `${thinking.slice(0, THINKING_PREVIEW_LIMIT)}…`;
 };
 
+const pruneThreadMap = <T,>(
+  values: Record<string, T>,
+  validThreadIds: Set<string>,
+): Record<string, T> => {
+  const entries = Object.entries(values);
+  if (entries.length === 0) return values;
+
+  const nextEntries = entries.filter(([threadId]) => validThreadIds.has(threadId));
+  if (nextEntries.length === entries.length) return values;
+  return Object.fromEntries(nextEntries) as Record<string, T>;
+};
+
 const DiffView = lazy(async () => {
   const module = await import('./DiffView');
   return { default: module.DiffView };
@@ -103,13 +116,13 @@ export const ThreadPanel: React.FC = () => {
   const {
     activeThreadId,
     thread,
+    threadIdsKey,
     activeTab,
     setActiveTab,
     addMessage,
     appendToMessage,
     updateMessage,
     updateThread,
-    appendThinking,
     appendStreamBuffers,
     addToolCall,
     updateToolCallStatus,
@@ -133,13 +146,13 @@ export const ThreadPanel: React.FC = () => {
       thread: state.activeThreadId
         ? state.threads.find((threadEntry) => threadEntry.id === state.activeThreadId) || null
         : null,
+      threadIdsKey: state.threads.map((threadEntry) => threadEntry.id).join(THREAD_ID_SEPARATOR),
       activeTab: state.activeTab,
       setActiveTab: state.setActiveTab,
       addMessage: state.addMessage,
       appendToMessage: state.appendToMessage,
       updateMessage: state.updateMessage,
       updateThread: state.updateThread,
-      appendThinking: state.appendThinking,
       appendStreamBuffers: state.appendStreamBuffers,
       addToolCall: state.addToolCall,
       updateToolCallStatus: state.updateToolCallStatus,
@@ -159,14 +172,14 @@ export const ThreadPanel: React.FC = () => {
       consumeInputInsertion: state.consumeInputInsertion,
     })),
   );
-  const [input, setInput] = useState('');
+  const [inputByThread, setInputByThread] = useState<Record<string, string>>({});
   const [pendingPermissionByThread, setPendingPermissionByThread] =
     useState<Record<string, PendingPermissionRequest>>({});
   const [pendingUserInputByThread, setPendingUserInputByThread] =
     useState<Record<string, PendingUserInputRequest>>({});
   const [userInputAnswerByThread, setUserInputAnswerByThread] = useState<Record<string, string>>({});
   const [agentStatusMap, setAgentStatusMap] = useState<Record<string, string>>({});
-  const [editingTitle, setEditingTitle] = useState(false);
+  const [editingTitleThreadId, setEditingTitleThreadId] = useState<string | null>(null);
   const [titleDraft, setTitleDraft] = useState('');
   const [expandedThinkingByMessage, setExpandedThinkingByMessage] = useState<Record<string, boolean>>({});
   const [expandedFullThinkingByMessage, setExpandedFullThinkingByMessage] = useState<Record<string, boolean>>({});
@@ -174,6 +187,7 @@ export const ThreadPanel: React.FC = () => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const cancelTitleEditRef = useRef(false);
   const streamCleanupByThreadRef = useRef<Record<string, () => void>>({});
   const activeRequestIdByThreadRef = useRef<Record<string, string>>({});
 
@@ -183,6 +197,8 @@ export const ThreadPanel: React.FC = () => {
   const pendingPermission = activeThreadId ? pendingPermissionByThread[activeThreadId] || null : null;
   const pendingUserInput = activeThreadId ? pendingUserInputByThread[activeThreadId] || null : null;
   const userInputAnswer = activeThreadId ? userInputAnswerByThread[activeThreadId] || '' : '';
+  const input = activeThreadId ? inputByThread[activeThreadId] || '' : '';
+  const isEditingTitle = thread ? editingTitleThreadId === thread.id : false;
   const currentModel = useMemo(
     () => availableModels.find((model) => model.id === selectedModel),
     [availableModels, selectedModel],
@@ -194,6 +210,19 @@ export const ThreadPanel: React.FC = () => {
     );
   }, [currentModel]);
 
+  const updateInputDraft = (threadId: string, updater: (current: string) => string) => {
+    setInputByThread((prev) => {
+      const current = prev[threadId] || '';
+      const next = updater(current);
+      if (next === current) return prev;
+      if (next.length === 0) {
+        const { [threadId]: _ignored, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [threadId]: next };
+    });
+  };
+
   const scrollToBottom = () => {
     const el = scrollContainerRef.current;
     if (el) el.scrollTop = el.scrollHeight;
@@ -201,9 +230,9 @@ export const ThreadPanel: React.FC = () => {
 
   // Scroll on new messages and during streaming content growth.
   useEffect(() => {
-    if (!thread) return;
+    if (!thread || activeTab !== 'chat') return;
     scrollToBottom();
-  }, [thread?.messages, agentStatus]);
+  }, [activeTab, thread?.messages, agentStatus]);
 
   useEffect(() => () => {
     Object.values(streamCleanupByThreadRef.current).forEach((cleanup) => cleanup());
@@ -211,16 +240,46 @@ export const ThreadPanel: React.FC = () => {
     activeRequestIdByThreadRef.current = {};
   }, []);
 
+  useEffect(() => {
+    if (!editingTitleThreadId || editingTitleThreadId === activeThreadId) return;
+    setEditingTitleThreadId(null);
+    setTitleDraft('');
+  }, [activeThreadId, editingTitleThreadId]);
+
+  useEffect(() => {
+    const validThreadIds = new Set(threadIdsKey.split(THREAD_ID_SEPARATOR).filter(Boolean));
+    if (editingTitleThreadId && !validThreadIds.has(editingTitleThreadId)) {
+      setEditingTitleThreadId(null);
+      setTitleDraft('');
+    }
+
+    setInputByThread((prev) => pruneThreadMap(prev, validThreadIds));
+    setPendingPermissionByThread((prev) => pruneThreadMap(prev, validThreadIds));
+    setPendingUserInputByThread((prev) => pruneThreadMap(prev, validThreadIds));
+    setUserInputAnswerByThread((prev) => pruneThreadMap(prev, validThreadIds));
+    setAgentStatusMap((prev) => pruneThreadMap(prev, validThreadIds));
+
+    const staleThreadIds = Object.keys(streamCleanupByThreadRef.current)
+      .filter((threadId) => !validThreadIds.has(threadId));
+    for (const staleThreadId of staleThreadIds) {
+      streamCleanupByThreadRef.current[staleThreadId]?.();
+    }
+    activeRequestIdByThreadRef.current = pruneThreadMap(
+      activeRequestIdByThreadRef.current,
+      validThreadIds,
+    );
+  }, [editingTitleThreadId, threadIdsKey]);
+
   // Consume pending chat input insertions from sidebar skill/agent clicks.
   useEffect(() => {
-    if (pendingInputInsertion !== null) {
+    if (pendingInputInsertion !== null && activeThreadId) {
       const text = consumeInputInsertion();
       if (text) {
-        setInput((prev) => prev + text);
+        updateInputDraft(activeThreadId, (current) => current + text);
         inputRef.current?.focus();
       }
     }
-  }, [pendingInputInsertion, consumeInputInsertion]);
+  }, [activeThreadId, consumeInputInsertion, pendingInputInsertion]);
 
   // Listen for permission requests from the agent backend.
   useEffect(() => {
@@ -340,7 +399,7 @@ export const ThreadPanel: React.FC = () => {
     addMessage(threadId, assistantMsg);
     updateThread(threadId, { status: 'running' });
     setAgentStatusMap((prev) => ({ ...prev, [threadId]: '' }));
-    setInput('');
+    updateInputDraft(threadId, () => '');
 
     if (window.electronAPI) {
       const api = window.electronAPI;
@@ -445,7 +504,9 @@ export const ThreadPanel: React.FC = () => {
           const toolName = typeof payload.toolName === 'string' && payload.toolName.length > 0
             ? payload.toolName
             : 'tool';
-          runningToolCallIds.push(toolCallId);
+          if (!runningToolCallIds.includes(toolCallId)) {
+            runningToolCallIds.push(toolCallId);
+          }
           addToolCall(threadId, assistantMsgId, {
             id: toolCallId,
             toolName,
@@ -568,25 +629,33 @@ export const ThreadPanel: React.FC = () => {
     <div className="flex-1 flex flex-col min-h-0 overflow-hidden" data-testid="thread-panel">
       {/* Header — Codex style */}
       <div className="flex items-center justify-between gap-3 px-8 pt-7 pb-4 shrink-0 flex-wrap">
-        {editingTitle ? (
+        {isEditingTitle ? (
           <input
             className="text-xl font-semibold text-foreground bg-transparent outline-none border-b-2 border-primary min-w-[120px]"
             value={titleDraft}
             onChange={(e) => setTitleDraft(e.target.value)}
             onBlur={() => {
-              if (titleDraft.trim()) updateThread(thread.id, { title: titleDraft.trim() });
-              setEditingTitle(false);
+              const shouldCancel = cancelTitleEditRef.current;
+              cancelTitleEditRef.current = false;
+              if (!shouldCancel && titleDraft.trim()) {
+                updateThread(thread.id, { title: titleDraft.trim() });
+              }
+              setEditingTitleThreadId(null);
+              setTitleDraft('');
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
-              if (e.key === 'Escape') setEditingTitle(false);
+              if (e.key === 'Escape') {
+                cancelTitleEditRef.current = true;
+                (e.target as HTMLInputElement).blur();
+              }
             }}
             autoFocus
           />
         ) : (
           <h2
             className="text-xl font-semibold text-foreground cursor-pointer hover:text-primary/80 transition-colors"
-            onDoubleClick={() => { setEditingTitle(true); setTitleDraft(thread.title); }}
+            onDoubleClick={() => { setEditingTitleThreadId(thread.id); setTitleDraft(thread.title); }}
             title="Double-click to rename"
           >{thread.title}</h2>
         )}
@@ -948,7 +1017,10 @@ export const ThreadPanel: React.FC = () => {
                 placeholder="Ask Copilot to work on something..."
                 value={input}
                 disabled={isThreadRunning}
-                onChange={(e) => setInput(e.target.value)}
+                onChange={(e) => {
+                  if (!activeThreadId) return;
+                  updateInputDraft(activeThreadId, () => e.target.value);
+                }}
                 onKeyDown={handleKeyDown}
                 rows={1}
               />
@@ -1032,7 +1104,7 @@ export const ThreadPanel: React.FC = () => {
 
       {/* Diff Tab */}
       {activeTab === 'diff' && (
-        <div id="thread-tabpanel-diff" role="tabpanel" aria-labelledby="thread-tab-diff" className="flex-1 min-h-0">
+        <div id="thread-tabpanel-diff" role="tabpanel" aria-labelledby="thread-tab-diff" className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <Suspense fallback={tabPanelFallback}>
             <DiffView projectPath={threadProjectPath} />
           </Suspense>
@@ -1041,7 +1113,7 @@ export const ThreadPanel: React.FC = () => {
 
       {/* Terminal Tab */}
       {activeTab === 'terminal' && (
-        <div id="thread-tabpanel-terminal" role="tabpanel" aria-labelledby="thread-tab-terminal" className="flex-1 min-h-0">
+        <div id="thread-tabpanel-terminal" role="tabpanel" aria-labelledby="thread-tab-terminal" className="flex-1 flex flex-col min-h-0 overflow-hidden">
           <Suspense fallback={tabPanelFallback}>
             <TerminalView threadId={thread.id} projectPath={threadProjectPath} />
           </Suspense>

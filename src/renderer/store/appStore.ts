@@ -195,6 +195,15 @@ const updateMessageList = (
   return changed ? { ...thread, messages: nextMessages } : thread;
 };
 
+const findThreadById = (threads: Thread[], threadId: string | null): Thread | null =>
+  threadId ? threads.find((thread) => thread.id === threadId) || null : null;
+
+const findLatestThreadForProject = (threads: Thread[], projectPath: string | null): Thread | null =>
+  projectPath ? threads.find((thread) => thread.projectPath === projectPath) || null : null;
+
+const pickFallbackThread = (threads: Thread[], preferredProjectPath: string | null): Thread | null =>
+  findLatestThreadForProject(threads, preferredProjectPath) || threads[0] || null;
+
 const appStore = create<AppState>()(
   persist(
     (set, get) => ({
@@ -207,13 +216,20 @@ const appStore = create<AppState>()(
       projectPath: null,
       projectName: null,
       setProject: (path, name) =>
-        set((s) => ({
-          projects: s.projects.some((p) => p.path === path)
-            ? s.projects
-            : [...s.projects, { path, name }],
-          projectPath: path,
-          projectName: name,
-        })),
+        set((s) => {
+          const activeThread = findThreadById(s.threads, s.activeThreadId);
+          const matchingThread = findLatestThreadForProject(s.threads, path);
+          const nextActiveThread = activeThread?.projectPath === path ? activeThread : matchingThread;
+
+          return {
+            projects: s.projects.some((p) => p.path === path)
+              ? s.projects
+              : [...s.projects, { path, name }],
+            projectPath: nextActiveThread?.projectPath ?? path,
+            projectName: nextActiveThread?.projectName ?? name,
+            activeThreadId: nextActiveThread?.id ?? null,
+          };
+        }),
 
       // Model
       selectedModel: 'claude-sonnet-4',
@@ -248,16 +264,16 @@ const appStore = create<AppState>()(
 
       setActiveThread: (id) =>
         set((s) => {
-          if (!id) return { activeThreadId: null };
-          const thread = s.threads.find((t) => t.id === id);
-          if (thread?.projectPath && thread?.projectName) {
+          const thread = findThreadById(s.threads, id);
+          if (!thread) return { activeThreadId: null };
+          if (thread.projectPath && thread.projectName) {
             return {
-              activeThreadId: id,
+              activeThreadId: thread.id,
               projectPath: thread.projectPath,
               projectName: thread.projectName,
             };
           }
-          return { activeThreadId: id };
+          return { activeThreadId: thread.id };
         }),
 
       createThread: (title, mode) => {
@@ -286,10 +302,19 @@ const appStore = create<AppState>()(
       },
 
       removeThread: (id) =>
-        set((s) => ({
-          threads: s.threads.filter((t) => t.id !== id),
-          activeThreadId: s.activeThreadId === id ? null : s.activeThreadId,
-        })),
+        set((s) => {
+          const threads = s.threads.filter((thread) => thread.id !== id);
+          const nextActiveThread = s.activeThreadId === id
+            ? pickFallbackThread(threads, s.projectPath)
+            : findThreadById(threads, s.activeThreadId);
+
+          return {
+            threads,
+            activeThreadId: nextActiveThread?.id ?? null,
+            projectPath: nextActiveThread?.projectPath ?? s.projectPath,
+            projectName: nextActiveThread?.projectName ?? s.projectName,
+          };
+        }),
 
       updateThread: (id, updates) =>
         set((s) => ({
@@ -452,16 +477,18 @@ const appStore = create<AppState>()(
             ...t,
             messages: t.messages.slice(-MAX_MESSAGES_PER_THREAD),
           }));
+        const persistedActiveThread = findThreadById(trimmedThreads, state.activeThreadId)
+          || (state.activeThreadId ? findLatestThreadForProject(trimmedThreads, state.projectPath) : null);
         return {
           githubUser: state.githubUser,
           projects: state.projects,
-          projectPath: state.projectPath,
-          projectName: state.projectName,
+          projectPath: persistedActiveThread?.projectPath ?? state.projectPath,
+          projectName: persistedActiveThread?.projectName ?? state.projectName,
           selectedModel: state.selectedModel,
           reasoningEffort: state.reasoningEffort,
           permissionMode: state.permissionMode,
           threads: trimmedThreads,
-          activeThreadId: state.activeThreadId,
+          activeThreadId: persistedActiveThread?.id ?? null,
           mcpServers: state.mcpServers,
           showToolOutputDetails: state.showToolOutputDetails,
           theme: state.theme,
