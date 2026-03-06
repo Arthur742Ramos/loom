@@ -1019,7 +1019,11 @@ export const Sidebar: React.FC = () => {
               <p className="text-[10px] text-muted-foreground/50 uppercase tracking-wider pt-1">From project</p>
             )}
             {projectMcpEntries.map(([name, config]) => (
-              <div key={`proj-${name}`} className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]">
+              <div
+                key={`proj-${name}`}
+                className="flex items-center gap-2 px-2 py-1.5 rounded-md bg-secondary/40 text-[11px]"
+                data-testid="mcp-project-server"
+              >
                 <span className="text-blue-400">●</span>
                 <div className="min-w-0 flex-1">
                   <p className="font-medium text-foreground truncate">{name}</p>

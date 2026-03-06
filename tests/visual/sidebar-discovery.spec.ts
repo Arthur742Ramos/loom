@@ -4,10 +4,17 @@ import * as path from 'path';
 import { createGitFixtureRepo, GitFixtureRepo } from '../utils/createGitFixtureRepo';
 import { launchLoomApp, LoomAppContext, setProjectInStore, stabilizePageForScreenshot } from '../utils/electronApp';
 
+const ensureSectionOpen = async (page: Page, sectionName: 'MCP Servers' | 'Skills' | 'Agents'): Promise<void> => {
+  const toggle = page.getByRole('button', { name: sectionName });
+  if ((await toggle.getAttribute('aria-expanded')) !== 'true') {
+    await toggle.click();
+  }
+};
+
 const openDiscoverySections = async (page: Page): Promise<void> => {
-  await page.getByRole('button', { name: 'MCP Servers' }).click();
-  await page.getByRole('button', { name: 'Skills' }).click();
-  await page.getByRole('button', { name: 'Agents' }).click();
+  await ensureSectionOpen(page, 'MCP Servers');
+  await ensureSectionOpen(page, 'Skills');
+  await ensureSectionOpen(page, 'Agents');
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
 };
 
@@ -162,7 +169,7 @@ test('matches sidebar discovery populated states', async () => {
     await expect(appContext.page.getByTestId('skills-summary')).toBeVisible();
     await expect(appContext.page.getByTestId('agents-summary')).toBeVisible();
     await expect(appContext.page.getByTestId('mcp-summary')).toBeVisible();
-    await expect(appContext.page.getByText('cloudbuild')).toBeVisible();
+    await expect(appContext.page.getByTestId('mcp-project-server').filter({ hasText: 'cloudbuild' })).toHaveCount(1);
     await expect(appContext.page.getByTestId('sidebar')).toHaveScreenshot('sidebar-discovery-populated.png', { maxDiffPixelRatio: 0.03 });
   } finally {
     await closeSidebarApp(appContext, fixtureRepo);

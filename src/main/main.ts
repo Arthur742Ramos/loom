@@ -1,6 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, Menu } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { setupGitHandlers } from './git';
 import { setupTerminalHandlers } from './terminal';
 import { setupAgentHandlers } from './agent';
@@ -22,6 +23,13 @@ process.on('unhandledRejection', (reason: unknown) => {
 });
 
 let mainWindow: BrowserWindow | null = null;
+
+if (process.env.LOOM_TEST_MODE === '1') {
+  const loomTestUserDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-test-user-data-'));
+  if (typeof app.setPath === 'function') {
+    app.setPath('userData', loomTestUserDataDir);
+  }
+}
 
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);

@@ -91,7 +91,7 @@ test('shows jump-to-latest while reviewing earlier chat history', async () => {
   await expect(page.getByTestId('thread-jump-to-latest')).toBeVisible();
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
   await stabilizePageForScreenshot(page);
-  await expect(page.getByTestId('thread-panel')).toHaveScreenshot('thread-panel-jump-to-latest.png', {
+  await expect(page.getByTestId('thread-jump-to-latest')).toHaveScreenshot('thread-panel-jump-to-latest.png', {
     maxDiffPixelRatio: 0.03,
   });
 });
