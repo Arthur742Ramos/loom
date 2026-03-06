@@ -54,6 +54,8 @@ export function createGitFixtureRepo(): GitFixtureRepo {
   fs.writeFileSync(path.join(repoPath, 'src.ts'), 'export const value = 1;\n');
   runGit(repoPath, ['add', '--', 'src.ts']);
   runGit(repoPath, ['commit', '--no-gpg-sign', '-m', 'initial fixture']);
+  runGit(repoPath, ['branch', '-M', 'main']);
+  runGit(repoPath, ['branch', 'feature/neat-switcher']);
 
   fs.writeFileSync(path.join(repoPath, 'src.ts'), 'export const value = 2;\nexport const updated = true;\n');
   fs.writeFileSync(path.join(repoPath, 'new-file.ts'), 'export const created = true;\n');

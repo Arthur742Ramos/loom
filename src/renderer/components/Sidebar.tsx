@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn, selectProjectFromDialog } from '../lib/utils';
 import { LoomLogo } from './LoomIcon';
+import { GitBranchListResult, GitCheckoutResult } from '../../shared/types';
 
 interface MentionableEntry {
   name: string;
@@ -37,8 +38,26 @@ interface AuthLoginResult {
   error?: string;
 }
 
+interface ProjectBranchState {
+  branches: string[];
+  current: string | null;
+  detached: boolean;
+  loading: boolean;
+  switching: boolean;
+  error: string | null;
+}
+
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
+
+const createEmptyProjectBranchState = (): ProjectBranchState => ({
+  branches: [],
+  current: null,
+  detached: false,
+  loading: false,
+  switching: false,
+  error: null,
+});
 
 /** Runtime guard for auth payloads from IPC. */
 const isGitHubUser = (value: unknown): value is GitHubUser => (
@@ -84,6 +103,65 @@ const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> =
     };
   }
   return result;
+};
+
+/** Normalize git branch list responses from IPC into render-safe state. */
+const toGitBranchListResult = (value: unknown): GitBranchListResult => {
+  if (!value || typeof value !== 'object') {
+    return {
+      branches: [],
+      current: null,
+      detached: false,
+      error: 'Unexpected branch list response',
+    };
+  }
+  const branches = Array.isArray((value as GitBranchListResult).branches)
+    ? (value as GitBranchListResult).branches.filter((branch): branch is string => typeof branch === 'string')
+    : [];
+  const currentValue = (value as GitBranchListResult).current;
+  const current = typeof currentValue === 'string'
+    && currentValue.length > 0
+    ? currentValue
+    : null;
+  return {
+    branches,
+    current,
+    detached: Boolean((value as GitBranchListResult).detached),
+    ...(typeof (value as GitBranchListResult).error === 'string'
+      ? { error: (value as GitBranchListResult).error }
+      : {}),
+  };
+};
+
+const toGitCheckoutResult = (value: unknown): GitCheckoutResult => {
+  if (!value || typeof value !== 'object') {
+    return { error: 'Unexpected branch checkout response' };
+  }
+  const currentValue = (value as GitCheckoutResult).current;
+  const current = typeof currentValue === 'string'
+    && currentValue.length > 0
+    ? currentValue
+    : null;
+  return {
+    ...(typeof (value as GitCheckoutResult).success === 'boolean'
+      ? { success: (value as GitCheckoutResult).success }
+      : {}),
+    ...(current ? { current } : {}),
+    ...(typeof (value as GitCheckoutResult).error === 'string'
+      ? { error: (value as GitCheckoutResult).error }
+      : {}),
+  };
+};
+
+const getBranchStatusText = (state: ProjectBranchState): string => {
+  if (state.switching) return 'Switching branch...';
+  if (state.loading && state.branches.length === 0) return 'Loading branches...';
+  if (state.detached) {
+    return state.current ? `Detached HEAD at ${state.current}` : 'Detached HEAD';
+  }
+  if (state.current) return `On ${state.current}`;
+  if (state.branches.length === 0) return 'No local branches found';
+  return 'Select a branch';
 };
 
 export const Sidebar: React.FC = () => {
@@ -136,6 +214,7 @@ export const Sidebar: React.FC = () => {
   const [showMcp, setShowMcp] = useState(false);
   const [mcpForm, setMcpForm] = useState({ name: '', command: '', url: '', args: '' });
   const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServer>>({});
+  const [branchStateByProject, setBranchStateByProject] = useState<Record<string, ProjectBranchState>>({});
   const [showSkills, setShowSkills] = useState(false);
   const [skills, setSkills] = useState<MentionableEntry[]>([]);
   const [skillsLoading, setSkillsLoading] = useState(false);
@@ -150,6 +229,7 @@ export const Sidebar: React.FC = () => {
   const skillsRequestIdRef = useRef(0);
   const agentsRequestIdRef = useRef(0);
   const projectMcpRequestIdRef = useRef(0);
+  const branchRequestIdRef = useRef(0);
 
   useEffect(() => {
     latestProjectPathRef.current = projectPath;
@@ -194,6 +274,16 @@ export const Sidebar: React.FC = () => {
     }
     return grouped;
   }, [threads, projectPath, normalizedThreadFilter]);
+
+  const setProjectBranchState = (
+    targetProjectPath: string,
+    updater: (previous: ProjectBranchState) => ProjectBranchState,
+  ) => {
+    setBranchStateByProject((previous) => ({
+      ...previous,
+      [targetProjectPath]: updater(previous[targetProjectPath] ?? createEmptyProjectBranchState()),
+    }));
+  };
 
   const loadSkills = async () => {
     const targetProjectPath = projectPath;
@@ -286,6 +376,50 @@ export const Sidebar: React.FC = () => {
     }
   };
 
+  const loadBranches = async (targetProjectPath = projectPath) => {
+    if (!targetProjectPath || !api) return;
+    const requestId = ++branchRequestIdRef.current;
+    setProjectBranchState(targetProjectPath, (previous) => ({
+      ...previous,
+      loading: true,
+      error: null,
+    }));
+    try {
+      const rawResult = await api.invoke<GitBranchListResult>('git:list-branches', targetProjectPath);
+      if (
+        !isMountedRef.current
+        || requestId !== branchRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      const result = toGitBranchListResult(rawResult);
+      setProjectBranchState(targetProjectPath, (previous) => ({
+        ...previous,
+        branches: result.branches,
+        current: result.current,
+        detached: result.detached,
+        loading: false,
+        switching: false,
+        error: result.error ?? null,
+      }));
+    } catch (error: unknown) {
+      if (
+        !isMountedRef.current
+        || requestId !== branchRequestIdRef.current
+        || latestProjectPathRef.current !== targetProjectPath
+      ) {
+        return;
+      }
+      setProjectBranchState(targetProjectPath, (previous) => ({
+        ...previous,
+        loading: false,
+        switching: false,
+        error: getErrorMessage(error),
+      }));
+    }
+  };
+
   const handleOpenProject = async () => {
     try {
       const selection = await selectProjectFromDialog();
@@ -307,6 +441,44 @@ export const Sidebar: React.FC = () => {
   };
 
   const api = typeof window !== 'undefined' ? window.electronAPI ?? null : null;
+
+  const handleBranchChange = async (targetProjectPath: string, branchName: string) => {
+    const normalizedBranchName = branchName.trim();
+    if (!api || normalizedBranchName.length === 0) return;
+    const currentBranch = branchStateByProject[targetProjectPath]?.current ?? null;
+    if (currentBranch === normalizedBranchName) return;
+    setProjectBranchState(targetProjectPath, (previous) => ({
+      ...previous,
+      switching: true,
+      error: null,
+    }));
+    try {
+      const rawResult = await api.invoke<GitCheckoutResult>('git:checkout', targetProjectPath, normalizedBranchName);
+      const result = toGitCheckoutResult(rawResult);
+      if (result.error) {
+        setProjectBranchState(targetProjectPath, (previous) => ({
+          ...previous,
+          switching: false,
+          error: result.error || 'Failed to switch branches',
+        }));
+        return;
+      }
+      setProjectBranchState(targetProjectPath, (previous) => ({
+        ...previous,
+        current: result.current ?? normalizedBranchName,
+        detached: false,
+        switching: false,
+        error: null,
+      }));
+      await loadBranches(targetProjectPath);
+    } catch (error: unknown) {
+      setProjectBranchState(targetProjectPath, (previous) => ({
+        ...previous,
+        switching: false,
+        error: getErrorMessage(error),
+      }));
+    }
+  };
 
   const checkAuthStatus = async () => {
     if (!api) return;
@@ -375,6 +547,11 @@ export const Sidebar: React.FC = () => {
     });
     return unsub;
   }, []);
+
+  useEffect(() => {
+    if (!projectPath) return;
+    void loadBranches(projectPath);
+  }, [projectPath]);
 
   const statusDot: Record<string, string> = {
     idle: 'bg-gray-300',
@@ -626,6 +803,11 @@ export const Sidebar: React.FC = () => {
         {projects.map((project) => {
           const projectThreads = threadsByProject.get(project.path) || [];
           const isActiveProject = projectPath === project.path;
+          const branchState = branchStateByProject[project.path] ?? createEmptyProjectBranchState();
+          const branchSelectValue = branchState.current && branchState.branches.includes(branchState.current)
+            ? branchState.current
+            : '';
+          const branchSelectId = `project-branch-switcher-${project.name}-${project.path}`;
           return (
             <div className="mb-3" key={project.path}>
               {/* Project folder */}
@@ -644,6 +826,62 @@ export const Sidebar: React.FC = () => {
                 <Folder className="w-[18px] h-[18px] text-muted-foreground" strokeWidth={1.5} />
                 {project.name}
               </button>
+              {isActiveProject && (
+                <div className="ml-8 mr-1 mt-1 space-y-1" data-testid="active-project-branch">
+                  <div className="flex items-center gap-1.5 rounded-lg border border-border/70 bg-background/70 px-2 py-1.5">
+                    <GitBranch className="w-3.5 h-3.5 shrink-0 text-muted-foreground" strokeWidth={1.5} />
+                    <label className="sr-only" htmlFor={branchSelectId}>
+                      Change git branch for {project.name}
+                    </label>
+                    <select
+                      id={branchSelectId}
+                      data-testid="project-branch-switcher"
+                      className="h-7 min-w-0 flex-1 bg-transparent text-[11px] text-foreground outline-none"
+                      value={branchSelectValue}
+                      disabled={branchState.switching || branchState.branches.length === 0}
+                      onChange={(event) => {
+                        event.stopPropagation();
+                        void handleBranchChange(project.path, event.target.value);
+                      }}
+                    >
+                      {branchState.current === null && (
+                        <option value="" disabled>
+                          {branchState.loading ? 'Loading branches...' : 'Select a branch'}
+                        </option>
+                      )}
+                      {branchState.branches.length === 0 && !branchState.loading && (
+                        <option value="" disabled>No local branches</option>
+                      )}
+                      {branchState.branches.map((branchName) => (
+                        <option key={branchName} value={branchName}>
+                          {branchName}
+                        </option>
+                      ))}
+                    </select>
+                    <button
+                      type="button"
+                      data-testid="project-branch-refresh"
+                      className="rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground disabled:opacity-50"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        void loadBranches(project.path);
+                      }}
+                      disabled={branchState.loading || branchState.switching}
+                      aria-label={`Refresh branches for ${project.name}`}
+                    >
+                      <RefreshCw className={cn('w-3.5 h-3.5', (branchState.loading || branchState.switching) && 'animate-spin')} />
+                    </button>
+                  </div>
+                  <p className="pl-5 text-[11px] text-muted-foreground/70" data-testid="project-branch-summary">
+                    {getBranchStatusText(branchState)}
+                  </p>
+                  {branchState.error && (
+                    <p className="pl-5 text-[11px] text-destructive" data-testid="project-branch-error" role="alert">
+                      {branchState.error}
+                    </p>
+                  )}
+                </div>
+              )}
 
               {/* Thread list under project */}
               {projectThreads.length === 0 ? (

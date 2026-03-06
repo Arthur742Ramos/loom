@@ -12,11 +12,21 @@ describe('Sidebar', () => {
   beforeEach(() => {
     resetAppStore();
     ipcRenderer = createMockIpcRenderer();
-    ipcRenderer.invoke.mockImplementation(async (channel: string) => {
+    ipcRenderer.invoke.mockImplementation(async (channel: string, _projectPath?: string, branchName?: string) => {
       if (channel === 'auth:get-user') return { authenticated: false };
       if (channel === 'auth:login') return { success: true };
       if (channel === 'auth:logout') return { success: true };
       if (channel === 'project:select-dir') return '/tmp/sidebar-project';
+      if (channel === 'git:list-branches') {
+        return {
+          branches: ['main', 'feature/neat-switcher'],
+          current: 'main',
+          detached: false,
+        };
+      }
+      if (channel === 'git:checkout') {
+        return { success: true, current: branchName };
+      }
       return null;
     });
     restoreRequire = installElectronMock(ipcRenderer);
@@ -41,6 +51,43 @@ describe('Sidebar', () => {
 
     await waitFor(() => expect(useAppStore.getState().threads).toHaveLength(1));
     expect(useAppStore.getState().threads[0].projectPath).toBe('/tmp/sidebar-project');
+  });
+
+  it('loads branches and switches the active project branch', async () => {
+    let currentBranch = 'main';
+    ipcRenderer.invoke.mockImplementation(async (channel: string, projectPath?: string, branchName?: string) => {
+      if (channel === 'auth:get-user') return { authenticated: false };
+      if (channel === 'project:select-dir') return '/tmp/sidebar-project';
+      if (channel === 'git:list-branches' && projectPath === '/tmp/sidebar-project') {
+        return {
+          branches: ['main', 'feature/neat-switcher'],
+          current: currentBranch,
+          detached: false,
+        };
+      }
+      if (channel === 'git:checkout' && projectPath === '/tmp/sidebar-project') {
+        currentBranch = branchName ?? currentBranch;
+        return { success: true, current: currentBranch };
+      }
+      return null;
+    });
+    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+
+    render(<Sidebar />);
+
+    const branchSwitcher = await screen.findByTestId('project-branch-switcher');
+    await waitFor(() => expect(branchSwitcher).toHaveValue('main'));
+
+    fireEvent.change(branchSwitcher, { target: { value: 'feature/neat-switcher' } });
+
+    await waitFor(() =>
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith(
+        'git:checkout',
+        '/tmp/sidebar-project',
+        'feature/neat-switcher',
+      ));
+    await waitFor(() =>
+      expect(screen.getByTestId('project-branch-summary')).toHaveTextContent('feature/neat-switcher'));
   });
 
   it('calls login and logout IPC handlers', async () => {

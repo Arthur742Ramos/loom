@@ -54,9 +54,14 @@ test('matches key UI screenshots', async () => {
   if (!appContext) throw new Error('App context not initialized');
   const { page } = appContext;
   await expect(page.getByTestId('login-button')).toContainText('Sign in with GitHub');
+  await expect(page.getByTestId('project-branch-summary')).toContainText('main');
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
 
   await expect(page.getByTestId('sidebar')).toHaveScreenshot('sidebar.png', { maxDiffPixelRatio: 0.03 });
+  await page.getByTestId('project-branch-switcher').selectOption('feature/neat-switcher');
+  await expect(page.getByTestId('project-branch-summary')).toContainText('feature/neat-switcher');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+  await expect(page.getByTestId('sidebar')).toHaveScreenshot('sidebar-branch-switcher.png', { maxDiffPixelRatio: 0.03 });
   await expect(page.getByTestId('thread-panel')).toHaveScreenshot('thread-panel.png', { maxDiffPixelRatio: 0.03 });
 
   await page.getByTestId('settings-button').click();

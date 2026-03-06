@@ -2,7 +2,7 @@ import { ipcMain } from 'electron';
 import simpleGit, { SimpleGit } from 'simple-git';
 import * as path from 'path';
 import * as fs from 'fs';
-import { DiffFile, DiffHunk } from '../shared/types';
+import { DiffFile, DiffHunk, GitBranchListResult, GitCheckoutResult } from '../shared/types';
 
 const gitInstances = new Map<string, SimpleGit>();
 const GIT_INSTANCE_MAX = 20;
@@ -125,6 +125,46 @@ export function setupGitHandlers() {
       return { error: toErrorMessage(error) };
     }
   });
+
+  ipcMain.handle('git:list-branches', async (_event, projectPath: string): Promise<GitBranchListResult> => {
+    try {
+      const git = getGit(projectPath);
+      const branches = await git.branchLocal();
+      return {
+        branches: branches.all,
+        current: branches.current || null,
+        detached: Boolean(branches.detached),
+      };
+    } catch (error: unknown) {
+      return {
+        branches: [],
+        current: null,
+        detached: false,
+        error: toErrorMessage(error),
+      };
+    }
+  });
+
+  ipcMain.handle(
+    'git:checkout',
+    async (_event, projectPath: string, branchName: string): Promise<GitCheckoutResult> => {
+      const normalizedBranchName = typeof branchName === 'string' ? branchName.trim() : '';
+      if (!normalizedBranchName) {
+        return { error: 'Branch name is required' };
+      }
+      try {
+        const git = getGit(projectPath);
+        await git.checkout(normalizedBranchName);
+        const status = await git.status();
+        return {
+          success: true,
+          current: status.current || normalizedBranchName,
+        };
+      } catch (error: unknown) {
+        return { error: toErrorMessage(error) };
+      }
+    },
+  );
 
   ipcMain.handle('git:diff', async (_event, projectPath: string, staged = false) => {
     try {

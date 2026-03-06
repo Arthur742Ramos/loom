@@ -44,24 +44,33 @@ describe('src/main/git.ts', () => {
 
   it('setupGitHandlers wires ipc handlers and returns normalized results', async () => {
     const mockIpcMain = createMockIpcMain();
+    let currentBranch = 'main';
     const gitMock = {
-      status: vi.fn().mockResolvedValue({
+      status: vi.fn().mockImplementation(async () => ({
         modified: ['src.ts'],
         created: ['new.ts'],
         deleted: [],
         staged: ['src.ts'],
         not_added: ['tmp.ts'],
         conflicted: [],
-        current: 'main',
-        tracking: 'origin/main',
+        current: currentBranch,
+        tracking: `origin/${currentBranch}`,
         ahead: 0,
         behind: 0,
-      }),
+      })),
       diff: vi.fn().mockResolvedValue(
         fs.readFileSync(path.resolve(process.cwd(), 'tests/fixtures/git-diff.txt'), 'utf-8'),
       ),
       add: vi.fn().mockResolvedValue(undefined),
       commit: vi.fn().mockResolvedValue({ commit: 'abc123', summary: { changes: 1 } }),
+      branchLocal: vi.fn().mockImplementation(async () => ({
+        all: ['main', 'feature/neat-switcher'],
+        current: currentBranch,
+        detached: false,
+      })),
+      checkout: vi.fn().mockImplementation(async (branchName: string) => {
+        currentBranch = branchName;
+      }),
       raw: vi.fn().mockResolvedValue(undefined),
     };
 
@@ -86,5 +95,19 @@ describe('src/main/git.ts', () => {
     const stageResult = await mockIpcMain.invoke('git:stage', '/tmp/repo', ['src.ts']);
     expect(stageResult).toEqual({ success: true });
     expect(gitMock.add).toHaveBeenCalledWith(['src.ts']);
+
+    const branches = await mockIpcMain.invoke('git:list-branches', '/tmp/repo');
+    expect(branches).toEqual({
+      branches: ['main', 'feature/neat-switcher'],
+      current: 'main',
+      detached: false,
+    });
+
+    const checkoutResult = await mockIpcMain.invoke('git:checkout', '/tmp/repo', 'feature/neat-switcher');
+    expect(gitMock.checkout).toHaveBeenCalledWith('feature/neat-switcher');
+    expect(checkoutResult).toEqual({
+      success: true,
+      current: 'feature/neat-switcher',
+    });
   });
 });

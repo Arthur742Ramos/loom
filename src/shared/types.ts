@@ -9,6 +9,8 @@ export const IPC = {
   GIT_STATUS: 'git:status',
   GIT_STAGE: 'git:stage',
   GIT_COMMIT: 'git:commit',
+  GIT_LIST_BRANCHES: 'git:list-branches',
+  GIT_CHECKOUT: 'git:checkout',
   GIT_CREATE_WORKTREE: 'git:create-worktree',
   GIT_REMOVE_WORKTREE: 'git:remove-worktree',
 
@@ -78,4 +80,17 @@ export interface DiffFile {
   hunks: DiffHunk[];
   additions: number;
   deletions: number;
+}
+
+export interface GitBranchListResult {
+  branches: string[];
+  current: string | null;
+  detached: boolean;
+  error?: string;
+}
+
+export interface GitCheckoutResult {
+  success?: boolean;
+  current?: string | null;
+  error?: string;
 }
