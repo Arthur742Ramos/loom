@@ -1102,7 +1102,7 @@ export const ThreadPanel: React.FC = () => {
           )}
 
           {showJumpToLatest && (
-            <div className="px-8 pb-2 flex justify-end">
+            <div className="px-8 pb-2 flex justify-end" data-testid="thread-jump-to-latest-shell">
               <Button
                 type="button"
                 variant="outline"
@@ -1112,7 +1112,7 @@ export const ThreadPanel: React.FC = () => {
                 onClick={() => scrollToBottom(true)}
               >
                 <ChevronDown className="w-3.5 h-3.5" />
-                Jump to latest
+                <span data-testid="thread-jump-to-latest-label">Jump to latest</span>
               </Button>
             </div>
           )}

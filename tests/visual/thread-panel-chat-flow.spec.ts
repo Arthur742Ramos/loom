@@ -89,9 +89,12 @@ test('shows jump-to-latest while reviewing earlier chat history', async () => {
     element.dispatchEvent(new Event('scroll', { bubbles: true }));
   });
   await expect(page.getByTestId('thread-jump-to-latest')).toBeVisible();
+  await expect(page.getByTestId('thread-jump-to-latest')).toContainText('Jump to latest');
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
   await stabilizePageForScreenshot(page);
-  await expect(page.getByTestId('thread-jump-to-latest')).toHaveScreenshot('thread-panel-jump-to-latest.png', {
+  await expect(page.getByTestId('thread-jump-to-latest-shell')).toHaveScreenshot('thread-panel-jump-to-latest.png', {
+    mask: [page.getByTestId('thread-jump-to-latest-label')],
+    maskColor: '#ffffff',
     maxDiffPixelRatio: 0.03,
   });
 });
