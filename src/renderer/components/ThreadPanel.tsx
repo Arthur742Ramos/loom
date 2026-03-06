@@ -1108,7 +1108,7 @@ export const ThreadPanel: React.FC = () => {
                 variant="outline"
                 size="sm"
                 data-testid="thread-jump-to-latest"
-                className="h-8 rounded-full border-border/80 bg-background/95 text-xs shadow-sm"
+                className="h-8 w-[7.5rem] rounded-full border-border/80 bg-background/95 text-xs shadow-sm"
                 onClick={() => scrollToBottom(true)}
               >
                 <ChevronDown className="w-3.5 h-3.5" />
