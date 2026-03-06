@@ -38,6 +38,7 @@ export const IPC = {
 
   // Project
   PROJECT_SELECT_DIR: 'project:select-dir',
+  APP_GET_VERSION: 'app:get-version',
 
   // Window
   WINDOW_MINIMIZE: 'window:minimize',

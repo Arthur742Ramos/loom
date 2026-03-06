@@ -20,6 +20,7 @@
 - 🔒 Request-scoped streaming isolation for safe concurrency
 - 🧠 Reasoning and tool trace rendering directly in chat
 - 🧮 Per-thread token accounting for prompt/completion/cache usage
+- 🩺 Integration diagnostics panel for GitHub auth, Copilot, and MCP status
 - 🌑 Codex-inspired dark UI with integrated terminal and Git views
 
 ## 📸 Screenshots
@@ -115,6 +116,7 @@ npm run test:unit      # Vitest — unit & component tests
 npm run test:e2e       # Playwright — Electron end-to-end tests
 npm run test:visual    # Playwright — screenshot regression tests
 npm run test:ci        # builds, then runs all three suites
+npm run test:live-integrations # live GitHub/Copilot smoke checks (scheduled CI)
 ```
 
 **Visual regression** tests capture screenshots of key UI panels and compare
@@ -131,6 +133,10 @@ npm run test:visual -- --update-snapshots
 E2E and visual tests use `LOOM_TEST_MODE` to inject scripted events for
 deterministic execution. On headless Linux CI, tests are wrapped with
 `xvfb-run`.
+
+The scheduled `Live Integrations` workflow runs nightly and can also be
+triggered manually. It requires `LOOM_SMOKE_GH_TOKEN` and can optionally use
+`LOOM_LIVE_MCP_URL` / `LOOM_LIVE_MCP_AUTH_HEADER` for MCP endpoint validation.
 
 ## 🤝 Contributing
 

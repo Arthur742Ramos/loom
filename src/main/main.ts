@@ -117,6 +117,8 @@ app.whenReady().then(() => {
     return result.canceled ? null : result.filePaths[0];
   });
 
+  ipcMain.handle('app:get-version', async () => ({ version: app.getVersion() }));
+
   // Auto-update — checks GitHub Releases for new versions
   if (process.env.NODE_ENV !== 'development' && process.env.LOOM_TEST_MODE !== '1') {
     autoUpdater.autoDownload = true;

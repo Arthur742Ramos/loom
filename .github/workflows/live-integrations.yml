@@ -1,0 +1,51 @@
+name: Live Integrations
+
+on:
+  schedule:
+    - cron: '0 4 * * *'
+  workflow_dispatch:
+
+jobs:
+  live-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Determine whether smoke token is configured
+        id: token
+        env:
+          LOOM_SMOKE_GH_TOKEN: ${{ secrets.LOOM_SMOKE_GH_TOKEN }}
+        run: |
+          if [ -n "$LOOM_SMOKE_GH_TOKEN" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Skip run when token is missing
+        if: steps.token.outputs.enabled != 'true'
+        run: echo "LOOM_SMOKE_GH_TOKEN is not configured; skipping live integration smoke checks."
+
+      - name: Install dependencies
+        if: steps.token.outputs.enabled == 'true'
+        run: npm ci
+
+      - name: Authenticate gh CLI
+        if: steps.token.outputs.enabled == 'true'
+        env:
+          LOOM_SMOKE_GH_TOKEN: ${{ secrets.LOOM_SMOKE_GH_TOKEN }}
+        run: echo "$LOOM_SMOKE_GH_TOKEN" | gh auth login --with-token
+
+      - name: Run live integration smoke checks
+        if: steps.token.outputs.enabled == 'true'
+        env:
+          LOOM_LIVE_MCP_URL: ${{ secrets.LOOM_LIVE_MCP_URL }}
+          LOOM_LIVE_MCP_AUTH_HEADER: ${{ secrets.LOOM_LIVE_MCP_AUTH_HEADER }}
+        run: npm run test:live-integrations
