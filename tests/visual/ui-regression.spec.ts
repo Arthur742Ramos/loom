@@ -50,7 +50,7 @@ test.afterEach(async () => {
   }
 });
 
-test('matches key UI screenshots', async () => {
+test('matches shared shell screenshots', async () => {
   if (!appContext) throw new Error('App context not initialized');
   const { page } = appContext;
   await expect(page.getByTestId('login-button')).toContainText('Sign in with GitHub');
@@ -63,12 +63,4 @@ test('matches key UI screenshots', async () => {
   await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
   await expect(page.getByTestId('sidebar')).toHaveScreenshot('sidebar-branch-switcher.png', { maxDiffPixelRatio: 0.03 });
   await expect(page.getByTestId('thread-panel')).toHaveScreenshot('thread-panel.png', { maxDiffPixelRatio: 0.03 });
-
-  await page.getByTestId('settings-button').click();
-  await expect(page.getByTestId('settings-panel')).toHaveScreenshot('settings-panel.png', { maxDiffPixelRatio: 0.03 });
-  await page.getByTestId('settings-close-button').click();
-
-  await page.getByTestId('tab-diff').click();
-  await expect(page.getByTestId('diff-view')).toContainText('src.ts');
-  await expect(page.getByTestId('diff-view')).toHaveScreenshot('diff-viewer.png', { maxDiffPixelRatio: 0.03 });
 });

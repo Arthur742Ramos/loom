@@ -28,6 +28,7 @@ export const IPC = {
   AGENT_LIST_SKILLS: 'agent:list-skills',
   AGENT_LIST_AGENTS: 'agent:list-agents',
   AGENT_LIST_PROJECT_MCP: 'agent:list-project-mcp',
+  AGENT_INSPECT_PROJECT_MCP: 'agent:inspect-project-mcp',
   AGENT_PERMISSION_REQUEST: 'agent:permission-request',
   AGENT_USER_INPUT_REQUEST: 'agent:user-input-request',
 
@@ -93,4 +94,27 @@ export interface GitCheckoutResult {
   success?: boolean;
   current?: string | null;
   error?: string;
+}
+
+export interface ProjectMcpServerConfig {
+  command?: string;
+  url?: string;
+  args?: string[];
+  env?: Record<string, string>;
+  headers?: Record<string, string>;
+  tools: string[];
+  type?: string;
+  timeout?: number;
+}
+
+export interface DiscoveryIssue {
+  severity: 'warning' | 'error';
+  message: string;
+}
+
+export interface ProjectMcpDiscoveryResult {
+  servers: Record<string, ProjectMcpServerConfig>;
+  searchedFiles: string[];
+  sourceFile: string | null;
+  issues: DiscoveryIssue[];
 }

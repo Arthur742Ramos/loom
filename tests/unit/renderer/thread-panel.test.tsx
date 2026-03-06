@@ -304,6 +304,72 @@ describe('ThreadPanel', () => {
     expect(screen.getByTestId('thread-input')).toHaveValue('Draft for thread two');
   });
 
+  it('shows jump-to-latest when scrolled away from the bottom and preserves scroll position', async () => {
+    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+
+    const scrollContainer = screen.getByTestId('thread-scroll-container');
+    let scrollTop = 0;
+    Object.defineProperty(scrollContainer, 'scrollHeight', {
+      configurable: true,
+      get: () => 1200,
+    });
+    Object.defineProperty(scrollContainer, 'clientHeight', {
+      configurable: true,
+      get: () => 400,
+    });
+    Object.defineProperty(scrollContainer, 'scrollTop', {
+      configurable: true,
+      get: () => scrollTop,
+      set: (value: number) => {
+        scrollTop = value;
+      },
+    });
+
+    act(() => {
+      useAppStore.getState().addMessage(threadId, {
+        id: 'msg-history-user',
+        role: 'user',
+        content: 'Earlier context',
+        timestamp: 1,
+        status: 'done',
+      });
+      useAppStore.getState().addMessage(threadId, {
+        id: 'msg-history-assistant',
+        role: 'assistant',
+        content: 'Initial answer',
+        timestamp: 2,
+        status: 'done',
+      });
+    });
+
+    await waitFor(() => expect(scrollTop).toBe(1200));
+    expect(screen.queryByTestId('thread-jump-to-latest')).not.toBeInTheDocument();
+
+    act(() => {
+      scrollTop = 200;
+      fireEvent.scroll(scrollContainer);
+    });
+
+    await waitFor(() => expect(screen.getByTestId('thread-jump-to-latest')).toBeInTheDocument());
+
+    act(() => {
+      useAppStore.getState().addMessage(threadId, {
+        id: 'msg-new-assistant',
+        role: 'assistant',
+        content: 'Latest answer',
+        timestamp: 3,
+        status: 'done',
+      });
+    });
+
+    await waitFor(() => expect(screen.getByText('Latest answer')).toBeInTheDocument());
+    expect(scrollTop).toBe(200);
+
+    fireEvent.click(screen.getByTestId('thread-jump-to-latest'));
+    await waitFor(() => expect(scrollTop).toBe(1200));
+    await waitFor(() => expect(screen.queryByTestId('thread-jump-to-latest')).not.toBeInTheDocument());
+  });
+
   it('cancels title editing when switching threads', async () => {
     const store = useAppStore.getState();
     const secondThreadId = store.createThread('Second thread', 'local');

@@ -7,7 +7,13 @@ import {
 } from 'lucide-react';
 import { cn, selectProjectFromDialog } from '../lib/utils';
 import { LoomLogo } from './LoomIcon';
-import { GitBranchListResult, GitCheckoutResult } from '../../shared/types';
+import {
+  DiscoveryIssue,
+  GitBranchListResult,
+  GitCheckoutResult,
+  ProjectMcpDiscoveryResult,
+  ProjectMcpServerConfig,
+} from '../../shared/types';
 
 interface MentionableEntry {
   name: string;
@@ -15,10 +21,12 @@ interface MentionableEntry {
   description: string;
 }
 
-interface ProjectMcpServer {
-  command?: string;
-  url?: string;
-  args?: string[];
+type DiscoverySectionKey = 'skills' | 'agents' | 'mcp';
+
+interface ProjectMcpDiagnosticsState {
+  sourceFile: string | null;
+  searchedFiles: string[];
+  issues: DiscoveryIssue[];
 }
 
 interface DiscoveryTestOverride {
@@ -61,6 +69,18 @@ interface ProjectBranchState {
 const getErrorMessage = (error: unknown): string =>
   error instanceof Error ? error.message : String(error);
 
+const DISCOVERY_SECTION_LABELS: Record<DiscoverySectionKey, string> = {
+  skills: 'Skills',
+  agents: 'Agents',
+  mcp: 'MCP servers',
+};
+
+const DISCOVERY_LOCATIONS: Record<DiscoverySectionKey, string[]> = {
+  skills: ['.github/copilot-instructions.md', '.github/copilot/skills/', '.copilot/skills/'],
+  agents: ['.github/agents/'],
+  mcp: ['.vscode/mcp.json', '.github/copilot/mcp.json'],
+};
+
 const getDiscoveryTestOverride = (
   api: Window['electronAPI'] | null,
   key: keyof SidebarDiscoveryTestState,
@@ -80,6 +100,12 @@ const createEmptyProjectBranchState = (): ProjectBranchState => ({
   loading: false,
   switching: false,
   error: null,
+});
+
+const createEmptyProjectMcpDiagnostics = (): ProjectMcpDiagnosticsState => ({
+  sourceFile: null,
+  searchedFiles: [],
+  issues: [],
 });
 
 /** Runtime guard for auth payloads from IPC. */
@@ -107,14 +133,18 @@ const toMentionableEntries = (value: unknown): MentionableEntry[] => {
 };
 
 /** Normalize project MCP server payloads from IPC. */
-const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> => {
+const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServerConfig> => {
   if (!value || typeof value !== 'object') return {};
-  const result: Record<string, ProjectMcpServer> = {};
+  const result: Record<string, ProjectMcpServerConfig> = {};
   for (const [name, config] of Object.entries(value)) {
     if (typeof config !== 'object' || config === null) continue;
-    const command = (config as ProjectMcpServer).command;
-    const url = (config as ProjectMcpServer).url;
-    const args = (config as ProjectMcpServer).args;
+    const normalizedConfig = config as Partial<ProjectMcpServerConfig>;
+    const command = normalizedConfig.command;
+    const url = normalizedConfig.url;
+    const args = normalizedConfig.args;
+    const tools = Array.isArray(normalizedConfig.tools)
+      ? normalizedConfig.tools.filter((tool): tool is string => typeof tool === 'string')
+      : ['*'];
     if (typeof command !== 'string' && typeof url !== 'string') continue;
     if (args !== undefined && (!Array.isArray(args) || !args.every((arg) => typeof arg === 'string'))) {
       continue;
@@ -123,9 +153,42 @@ const toProjectMcpServers = (value: unknown): Record<string, ProjectMcpServer> =
       ...(typeof command === 'string' ? { command } : {}),
       ...(typeof url === 'string' ? { url } : {}),
       ...(args ? { args } : {}),
+      tools,
     };
   }
   return result;
+};
+
+const toDiscoveryIssues = (value: unknown): DiscoveryIssue[] => {
+  if (!Array.isArray(value)) return [];
+  return value.filter((issue): issue is DiscoveryIssue => (
+    typeof issue === 'object'
+    && issue !== null
+    && ((issue as DiscoveryIssue).severity === 'warning' || (issue as DiscoveryIssue).severity === 'error')
+    && typeof (issue as DiscoveryIssue).message === 'string'
+  ));
+};
+
+const toProjectMcpDiscoveryResult = (value: unknown): ProjectMcpDiscoveryResult => {
+  const fallbackServers = toProjectMcpServers(value);
+  if (!value || typeof value !== 'object') {
+    return {
+      servers: fallbackServers,
+      searchedFiles: [],
+      sourceFile: null,
+      issues: [],
+    };
+  }
+
+  const result = value as Partial<ProjectMcpDiscoveryResult>;
+  return {
+    servers: toProjectMcpServers('servers' in result ? result.servers : value),
+    searchedFiles: Array.isArray(result.searchedFiles)
+      ? result.searchedFiles.filter((entry): entry is string => typeof entry === 'string')
+      : [],
+    sourceFile: typeof result.sourceFile === 'string' ? result.sourceFile : null,
+    issues: toDiscoveryIssues(result.issues),
+  };
 };
 
 /** Normalize git branch list responses from IPC into render-safe state. */
@@ -187,6 +250,49 @@ const getBranchStatusText = (state: ProjectBranchState): string => {
   return 'Select a branch';
 };
 
+const renderDiscoveryLocations = (locations: string[]) => locations.map((location, index) => (
+  <React.Fragment key={location}>
+    {index > 0 ? ', ' : null}
+    <code className="bg-secondary px-1 rounded">{location}</code>
+  </React.Fragment>
+));
+
+const getDiscoveryRecoveryHint = (section: DiscoverySectionKey, errorMessage: string): string => {
+  if (/Electron bridge unavailable|IPC channel not allowed/i.test(errorMessage)) {
+    return 'Restart Loom to restore the desktop bridge, then retry discovery.';
+  }
+  if (/EACCES|EPERM|permission/i.test(errorMessage)) {
+    return 'Check that Loom can read this project folder, then retry discovery.';
+  }
+  if (section === 'mcp' && /json|parse|unexpected token/i.test(errorMessage)) {
+    return 'Fix the JSON syntax in your MCP config, then retry discovery.';
+  }
+
+  switch (section) {
+    case 'skills':
+      return 'Check .github/copilot-instructions.md, .github/copilot/skills/, or .copilot/skills/, then retry discovery.';
+    case 'agents':
+      return 'Check .github/agents/ for readable .md files, then retry discovery.';
+    case 'mcp':
+      return 'Check .vscode/mcp.json or .github/copilot/mcp.json for syntax or schema issues, then retry discovery.';
+    default:
+      return 'Retry discovery after checking the project files.';
+  }
+};
+
+const buildDiscoveryDetails = (
+  section: DiscoverySectionKey,
+  message: string,
+  projectPath: string | null,
+  extraLines: string[] = [],
+): string => [
+  `${DISCOVERY_SECTION_LABELS[section]} discovery`,
+  projectPath ? `Project: ${projectPath}` : 'Project: none selected',
+  `Details: ${message}`,
+  `Checked: ${DISCOVERY_LOCATIONS[section].join(', ')}`,
+  ...extraLines,
+].join('\n');
+
 export const Sidebar: React.FC = () => {
   const {
     threads,
@@ -236,7 +342,8 @@ export const Sidebar: React.FC = () => {
   const [codeCopied, setCodeCopied] = useState(false);
   const [showMcp, setShowMcp] = useState(false);
   const [mcpForm, setMcpForm] = useState({ name: '', command: '', url: '', args: '' });
-  const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServer>>({});
+  const [projectMcp, setProjectMcp] = useState<Record<string, ProjectMcpServerConfig>>({});
+  const [projectMcpDiagnostics, setProjectMcpDiagnostics] = useState<ProjectMcpDiagnosticsState>(createEmptyProjectMcpDiagnostics());
   const [projectMcpLoading, setProjectMcpLoading] = useState(false);
   const [projectMcpError, setProjectMcpError] = useState<string | null>(null);
   const [branchStateByProject, setBranchStateByProject] = useState<Record<string, ProjectBranchState>>({});
@@ -248,6 +355,7 @@ export const Sidebar: React.FC = () => {
   const [agents, setAgents] = useState<MentionableEntry[]>([]);
   const [agentsLoading, setAgentsLoading] = useState(false);
   const [agentsError, setAgentsError] = useState<string | null>(null);
+  const [copiedDiscoverySection, setCopiedDiscoverySection] = useState<DiscoverySectionKey | null>(null);
   const [showThreadFilter, setShowThreadFilter] = useState(false);
   const [threadFilter, setThreadFilter] = useState('');
   const [debouncedThreadFilter, setDebouncedThreadFilter] = useState('');
@@ -257,6 +365,7 @@ export const Sidebar: React.FC = () => {
   const agentsRequestIdRef = useRef(0);
   const projectMcpRequestIdRef = useRef(0);
   const branchRequestIdRef = useRef(0);
+  const discoveryCopyResetTimeoutRef = useRef<number | null>(null);
   const api = typeof window !== 'undefined' ? window.electronAPI ?? null : null;
 
   latestProjectPathRef.current = projectPath;
@@ -265,11 +374,18 @@ export const Sidebar: React.FC = () => {
     isMountedRef.current = false;
   }, []);
 
+  useEffect(() => () => {
+    if (discoveryCopyResetTimeoutRef.current !== null) {
+      window.clearTimeout(discoveryCopyResetTimeoutRef.current);
+    }
+  }, []);
+
   useLayoutEffect(() => {
     skillsRequestIdRef.current += 1;
     agentsRequestIdRef.current += 1;
     projectMcpRequestIdRef.current += 1;
     setProjectMcp({});
+    setProjectMcpDiagnostics(createEmptyProjectMcpDiagnostics());
     setProjectMcpLoading(showMcp && Boolean(projectPath));
     setProjectMcpError(null);
     setSkills([]);
@@ -278,6 +394,7 @@ export const Sidebar: React.FC = () => {
     setAgents([]);
     setAgentsLoading(showAgents && Boolean(projectPath));
     setAgentsError(null);
+    setCopiedDiscoverySection(null);
   }, [projectPath]);
 
   useEffect(() => {
@@ -432,17 +549,20 @@ export const Sidebar: React.FC = () => {
     const targetProjectPath = projectPath;
     if (!targetProjectPath) return;
     if (!api) {
+      setProjectMcpDiagnostics(createEmptyProjectMcpDiagnostics());
       setProjectMcpError('Electron bridge unavailable.');
       setProjectMcpLoading(false);
       return;
     }
     const testOverride = getDiscoveryTestOverride(api, 'mcp');
     if (testOverride?.mode === 'loading') {
+      setProjectMcpDiagnostics(createEmptyProjectMcpDiagnostics());
       setProjectMcpLoading(true);
       setProjectMcpError(null);
       return;
     }
     if (testOverride?.mode === 'error') {
+      setProjectMcpDiagnostics(createEmptyProjectMcpDiagnostics());
       setProjectMcpLoading(false);
       setProjectMcpError(testOverride.error ?? 'Mock project MCP failure');
       return;
@@ -451,7 +571,7 @@ export const Sidebar: React.FC = () => {
     setProjectMcpLoading(true);
     setProjectMcpError(null);
     try {
-      const result = await api.invoke('agent:list-project-mcp', targetProjectPath);
+      const rawResult = await api.invoke('agent:inspect-project-mcp', targetProjectPath);
       if (
         !isMountedRef.current
         || requestId !== projectMcpRequestIdRef.current
@@ -459,7 +579,13 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
-      setProjectMcp(toProjectMcpServers(result));
+      const result = toProjectMcpDiscoveryResult(rawResult);
+      setProjectMcp(result.servers);
+      setProjectMcpDiagnostics({
+        sourceFile: result.sourceFile,
+        searchedFiles: result.searchedFiles,
+        issues: result.issues,
+      });
       setProjectMcpError(null);
     } catch (error: unknown) {
       console.warn('Failed to load project MCP servers:', getErrorMessage(error));
@@ -470,6 +596,7 @@ export const Sidebar: React.FC = () => {
       ) {
         return;
       }
+      setProjectMcpDiagnostics(createEmptyProjectMcpDiagnostics());
       setProjectMcpError(getErrorMessage(error));
     } finally {
       if (
@@ -533,6 +660,26 @@ export const Sidebar: React.FC = () => {
       setProject(selection.path, selection.name);
     } catch (error: unknown) {
       console.warn('Failed to open project picker:', getErrorMessage(error));
+    }
+  };
+
+  const handleCopyDiscoveryDetails = async (
+    section: DiscoverySectionKey,
+    message: string,
+    extraLines: string[] = [],
+  ) => {
+    if (typeof navigator === 'undefined' || !navigator.clipboard?.writeText) return;
+    try {
+      await navigator.clipboard.writeText(buildDiscoveryDetails(section, message, projectPath, extraLines));
+      setCopiedDiscoverySection(section);
+      if (discoveryCopyResetTimeoutRef.current !== null) {
+        window.clearTimeout(discoveryCopyResetTimeoutRef.current);
+      }
+      discoveryCopyResetTimeoutRef.current = window.setTimeout(() => {
+        setCopiedDiscoverySection((current) => (current === section ? null : current));
+      }, 1600);
+    } catch (error: unknown) {
+      console.warn('Failed to copy discovery details:', getErrorMessage(error));
     }
   };
 
@@ -679,12 +826,24 @@ export const Sidebar: React.FC = () => {
     error: 'bg-red-500',
   };
   const inlineInfoPanelClasses = 'rounded-md border border-border/60 bg-secondary/20 px-2 py-1.5 text-[11px] text-muted-foreground/70 space-y-1';
+  const inlineWarningPanelClasses = 'rounded-md border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-700 dark:text-amber-300 space-y-1';
   const inlineErrorPanelClasses = 'rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-[11px] text-destructive space-y-1';
   const retryButtonClasses = 'inline-flex items-center rounded-md border border-destructive/30 px-2 py-1 text-[10px] font-medium text-destructive transition-colors hover:bg-destructive/10';
+  const secondaryActionButtonClasses = 'inline-flex items-center rounded-md border border-border/60 px-2 py-1 text-[10px] font-medium text-foreground/80 transition-colors hover:bg-secondary/80';
   const projectMcpEntries = Object.entries(projectMcp);
   const customMcpEntries = Object.entries(mcpServers);
   const hasProjectMcp = projectMcpEntries.length > 0;
   const hasCustomMcp = customMcpEntries.length > 0;
+  const hasProjectInstructions = skills.some((skill) => skill.name === 'copilot-instructions');
+  const projectSkillCount = skills.filter((skill) => skill.name !== 'copilot-instructions').length;
+  const skillsSummaryTitle = projectSkillCount > 0
+    ? `${projectSkillCount} skill${projectSkillCount === 1 ? '' : 's'} ready to mention${hasProjectInstructions ? ', plus project instructions.' : '.'}`
+    : 'Project instructions ready to mention.';
+  const agentsSummaryTitle = `${agents.length} custom agent${agents.length === 1 ? '' : 's'} ready to mention.`;
+  const mcpSearchLocations = projectMcpDiagnostics.searchedFiles.length > 0
+    ? projectMcpDiagnostics.searchedFiles
+    : DISCOVERY_LOCATIONS.mcp;
+  const mcpIssueDetails = projectMcpDiagnostics.issues.map((issue) => issue.message);
 
   return (
     <aside className="w-[280px] flex flex-col pt-10 pb-4 shrink-0 border-r border-border/70 bg-background/70" data-testid="sidebar" aria-label="Sidebar navigation">
@@ -723,43 +882,135 @@ export const Sidebar: React.FC = () => {
         {showMcp && (
           <div className="ml-4 mr-2 mb-1 mt-0.5 space-y-1.5">
             {projectMcpLoading && (
-              <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite" data-testid="mcp-loading">
-                {hasProjectMcp || hasCustomMcp
-                  ? 'Refreshing project MCP servers...'
-                  : 'Loading project MCP servers...'}
-              </p>
+              <div className={inlineInfoPanelClasses} aria-live="polite" data-testid="mcp-loading">
+                <p className="font-medium text-foreground">
+                  {hasProjectMcp || hasCustomMcp
+                    ? 'Refreshing project MCP servers...'
+                    : 'Scanning project MCP servers...'}
+                </p>
+                <p className="text-[10px]">
+                  Checking {renderDiscoveryLocations(mcpSearchLocations)}.
+                </p>
+              </div>
             )}
             {projectMcpError && (
               <div className={inlineErrorPanelClasses} data-testid="mcp-error" role="alert">
                 <p className="font-medium">Couldn&apos;t load project MCP servers.</p>
                 <p className="break-words text-[10px] text-destructive/80">{projectMcpError}</p>
-                <button
-                  type="button"
-                  className={retryButtonClasses}
-                  data-testid="mcp-retry"
-                  onClick={() => {
-                    void loadProjectMcp();
-                  }}
-                >
-                  Retry
-                </button>
+                <p className="text-[10px] text-destructive/80">{getDiscoveryRecoveryHint('mcp', projectMcpError)}</p>
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  <button
+                    type="button"
+                    className={retryButtonClasses}
+                    data-testid="mcp-retry"
+                    onClick={() => {
+                      void loadProjectMcp();
+                    }}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    className={secondaryActionButtonClasses}
+                    data-testid="mcp-copy-details"
+                    onClick={() => {
+                      void handleCopyDiscoveryDetails('mcp', projectMcpError);
+                    }}
+                  >
+                    {copiedDiscoverySection === 'mcp' ? 'Copied details' : 'Copy details'}
+                  </button>
+                </div>
               </div>
             )}
             {!projectPath && !projectMcpLoading && !projectMcpError && (
               <div className={inlineInfoPanelClasses} data-testid="mcp-no-project">
                 <p className="font-medium text-foreground">Open a project to discover MCP servers.</p>
                 <p className="text-[10px]">
-                  Loom looks for <code className="bg-secondary px-1 rounded">.vscode/mcp.json</code> and{' '}
-                  <code className="bg-secondary px-1 rounded">.github/copilot/mcp.json</code>.
+                  Loom looks for {renderDiscoveryLocations(DISCOVERY_LOCATIONS.mcp)}.
+                </p>
+                <button type="button" className={secondaryActionButtonClasses} data-testid="mcp-open-project" onClick={() => {
+                  void handleOpenProject();
+                }}
+                >
+                  Choose folder
+                </button>
+              </div>
+            )}
+            {projectPath && !projectMcpLoading && !projectMcpError && projectMcpDiagnostics.issues.length > 0 && (
+              <div className={inlineWarningPanelClasses} data-testid="mcp-diagnostics-warning" role="status">
+                <p className="font-medium text-foreground">
+                  {hasProjectMcp ? 'Recovered project MCP discovery with warnings.' : 'Project MCP configuration needs attention.'}
+                </p>
+                <p className="text-[10px]">
+                  {projectMcpDiagnostics.sourceFile
+                    ? (
+                      <>
+                        Using <code className="bg-secondary px-1 rounded">{projectMcpDiagnostics.sourceFile}</code> after checking {renderDiscoveryLocations(mcpSearchLocations)}.
+                      </>
+                    )
+                    : (
+                      <>
+                        Checked {renderDiscoveryLocations(mcpSearchLocations)} while looking for project MCP servers.
+                      </>
+                    )}
+                </p>
+                {mcpIssueDetails.map((issue) => (
+                  <p key={issue} className="break-words text-[10px]">{issue}</p>
+                ))}
+                <button
+                  type="button"
+                  className={secondaryActionButtonClasses}
+                  data-testid="mcp-copy-details"
+                  onClick={() => {
+                    void handleCopyDiscoveryDetails(
+                      'mcp',
+                      mcpIssueDetails.join(' | '),
+                      projectMcpDiagnostics.sourceFile ? [`Using: ${projectMcpDiagnostics.sourceFile}`] : [],
+                    );
+                  }}
+                >
+                  {copiedDiscoverySection === 'mcp' ? 'Copied details' : 'Copy details'}
+                </button>
+              </div>
+            )}
+            {projectPath && !projectMcpLoading && !projectMcpError && hasProjectMcp && projectMcpDiagnostics.issues.length === 0 && (
+              <div className={inlineInfoPanelClasses} data-testid="mcp-summary">
+                <p className="font-medium text-foreground">
+                  {projectMcpEntries.length} project MCP server{projectMcpEntries.length === 1 ? '' : 's'} discovered.
+                </p>
+                <p className="text-[10px]">
+                  {projectMcpDiagnostics.sourceFile
+                    ? (
+                      <>
+                        Loaded from <code className="bg-secondary px-1 rounded">{projectMcpDiagnostics.sourceFile}</code>.
+                      </>
+                    )
+                    : (
+                      <>
+                        Loom looks for {renderDiscoveryLocations(mcpSearchLocations)}.
+                      </>
+                    )}
                 </p>
               </div>
             )}
-            {projectPath && !projectMcpLoading && !projectMcpError && !hasProjectMcp && !hasCustomMcp && (
+            {projectPath && !projectMcpLoading && !projectMcpError && !hasProjectMcp && !hasCustomMcp && projectMcpDiagnostics.issues.length === 0 && (
               <div className={inlineInfoPanelClasses} data-testid="mcp-empty-state">
-                <p className="font-medium text-foreground">No MCP servers found.</p>
+                <p className="font-medium text-foreground">No project MCP servers found.</p>
                 <p className="text-[10px]">
-                  Add <code className="bg-secondary px-1 rounded">.vscode/mcp.json</code> or{' '}
-                  <code className="bg-secondary px-1 rounded">.github/copilot/mcp.json</code>, or add a custom server below.
+                  {projectMcpDiagnostics.sourceFile
+                    ? (
+                      <>
+                        Checked <code className="bg-secondary px-1 rounded">{projectMcpDiagnostics.sourceFile}</code> but didn&apos;t find usable servers.
+                      </>
+                    )
+                    : (
+                      <>
+                        Loom looks for {renderDiscoveryLocations(mcpSearchLocations)}.
+                      </>
+                    )}
+                </p>
+                <p className="text-[10px]">
+                  Add {renderDiscoveryLocations(DISCOVERY_LOCATIONS.mcp)}, or add a custom server below.
                 </p>
               </div>
             )}
@@ -857,33 +1108,63 @@ export const Sidebar: React.FC = () => {
         {showSkills && (
           <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
             {skillsLoading && (
-              <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite" data-testid="skills-loading">
-                {skills.length > 0 ? 'Refreshing project skills...' : 'Loading project skills...'}
-              </p>
+              <div className={inlineInfoPanelClasses} aria-live="polite" data-testid="skills-loading">
+                <p className="font-medium text-foreground">
+                  {skills.length > 0 ? 'Refreshing project skills...' : 'Scanning project skills...'}
+                </p>
+                <p className="text-[10px]">
+                  Checking {renderDiscoveryLocations(DISCOVERY_LOCATIONS.skills)}.
+                </p>
+              </div>
             )}
             {skillsError && (
               <div className={inlineErrorPanelClasses} data-testid="skills-error" role="alert">
                 <p className="font-medium">Couldn&apos;t load project skills.</p>
                 <p className="break-words text-[10px] text-destructive/80">{skillsError}</p>
-                <button
-                  type="button"
-                  className={retryButtonClasses}
-                  data-testid="skills-retry"
-                  onClick={() => {
-                    void loadSkills();
-                  }}
-                >
-                  Retry
-                </button>
+                <p className="text-[10px] text-destructive/80">{getDiscoveryRecoveryHint('skills', skillsError)}</p>
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  <button
+                    type="button"
+                    className={retryButtonClasses}
+                    data-testid="skills-retry"
+                    onClick={() => {
+                      void loadSkills();
+                    }}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    className={secondaryActionButtonClasses}
+                    data-testid="skills-copy-details"
+                    onClick={() => {
+                      void handleCopyDiscoveryDetails('skills', skillsError);
+                    }}
+                  >
+                    {copiedDiscoverySection === 'skills' ? 'Copied details' : 'Copy details'}
+                  </button>
+                </div>
               </div>
             )}
             {!projectPath && !skillsLoading && !skillsError && (
               <div className={inlineInfoPanelClasses} data-testid="skills-no-project">
                 <p className="font-medium text-foreground">Open a project to discover skills.</p>
                 <p className="text-[10px]">
-                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
-                  <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code> or{' '}
-                  <code className="bg-secondary px-1 rounded">.copilot/skills/</code>.
+                  Loom checks {renderDiscoveryLocations(DISCOVERY_LOCATIONS.skills)}.
+                </p>
+                <button type="button" className={secondaryActionButtonClasses} data-testid="skills-open-project" onClick={() => {
+                  void handleOpenProject();
+                }}
+                >
+                  Choose folder
+                </button>
+              </div>
+            )}
+            {projectPath && !skillsLoading && !skillsError && skills.length > 0 && (
+              <div className={inlineInfoPanelClasses} data-testid="skills-summary">
+                <p className="font-medium text-foreground">{skillsSummaryTitle}</p>
+                <p className="text-[10px]">
+                  Click a skill to insert an @mention. Loom checks {renderDiscoveryLocations(DISCOVERY_LOCATIONS.skills)}.
                 </p>
               </div>
             )}
@@ -891,8 +1172,10 @@ export const Sidebar: React.FC = () => {
               <div className={inlineInfoPanelClasses} data-testid="skills-empty-state">
                 <p className="font-medium text-foreground">No project skills found.</p>
                 <p className="text-[10px]">
-                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
-                  <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code> or{' '}
+                  Loom checks {renderDiscoveryLocations(DISCOVERY_LOCATIONS.skills)}.
+                </p>
+                <p className="text-[10px]">
+                  Add markdown files to <code className="bg-secondary px-1 rounded">.github/copilot/skills/</code> or{' '}
                   <code className="bg-secondary px-1 rounded">.copilot/skills/</code>.
                 </p>
               </div>
@@ -932,32 +1215,63 @@ export const Sidebar: React.FC = () => {
         {showAgents && (
           <div className="ml-6 mr-2 mb-1 mt-0.5 space-y-1">
             {agentsLoading && (
-              <p className="text-[11px] text-muted-foreground/60 py-1" aria-live="polite" data-testid="agents-loading">
-                {agents.length > 0 ? 'Refreshing project agents...' : 'Loading project agents...'}
-              </p>
+              <div className={inlineInfoPanelClasses} aria-live="polite" data-testid="agents-loading">
+                <p className="font-medium text-foreground">
+                  {agents.length > 0 ? 'Refreshing project agents...' : 'Scanning project agents...'}
+                </p>
+                <p className="text-[10px]">
+                  Checking {renderDiscoveryLocations(DISCOVERY_LOCATIONS.agents)}.
+                </p>
+              </div>
             )}
             {agentsError && (
               <div className={inlineErrorPanelClasses} data-testid="agents-error" role="alert">
                 <p className="font-medium">Couldn&apos;t load project agents.</p>
                 <p className="break-words text-[10px] text-destructive/80">{agentsError}</p>
-                <button
-                  type="button"
-                  className={retryButtonClasses}
-                  data-testid="agents-retry"
-                  onClick={() => {
-                    void loadAgents();
-                  }}
-                >
-                  Retry
-                </button>
+                <p className="text-[10px] text-destructive/80">{getDiscoveryRecoveryHint('agents', agentsError)}</p>
+                <div className="flex flex-wrap gap-1 pt-0.5">
+                  <button
+                    type="button"
+                    className={retryButtonClasses}
+                    data-testid="agents-retry"
+                    onClick={() => {
+                      void loadAgents();
+                    }}
+                  >
+                    Retry
+                  </button>
+                  <button
+                    type="button"
+                    className={secondaryActionButtonClasses}
+                    data-testid="agents-copy-details"
+                    onClick={() => {
+                      void handleCopyDiscoveryDetails('agents', agentsError);
+                    }}
+                  >
+                    {copiedDiscoverySection === 'agents' ? 'Copied details' : 'Copy details'}
+                  </button>
+                </div>
               </div>
             )}
             {!projectPath && !agentsLoading && !agentsError && (
               <div className={inlineInfoPanelClasses} data-testid="agents-no-project">
                 <p className="font-medium text-foreground">Open a project to discover custom agents.</p>
                 <p className="text-[10px]">
-                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
-                  <code className="bg-secondary px-1 rounded">.github/agents/</code>.
+                  Loom checks {renderDiscoveryLocations(DISCOVERY_LOCATIONS.agents)}.
+                </p>
+                <button type="button" className={secondaryActionButtonClasses} data-testid="agents-open-project" onClick={() => {
+                  void handleOpenProject();
+                }}
+                >
+                  Choose folder
+                </button>
+              </div>
+            )}
+            {projectPath && !agentsLoading && !agentsError && agents.length > 0 && (
+              <div className={inlineInfoPanelClasses} data-testid="agents-summary">
+                <p className="font-medium text-foreground">{agentsSummaryTitle}</p>
+                <p className="text-[10px]">
+                  Click an agent to insert an @mention. Loom checks {renderDiscoveryLocations(DISCOVERY_LOCATIONS.agents)}.
                 </p>
               </div>
             )}
@@ -965,8 +1279,10 @@ export const Sidebar: React.FC = () => {
               <div className={inlineInfoPanelClasses} data-testid="agents-empty-state">
                 <p className="font-medium text-foreground">No project agents found.</p>
                 <p className="text-[10px]">
-                  Add <code className="bg-secondary px-1 rounded">.md</code> files to{' '}
-                  <code className="bg-secondary px-1 rounded">.github/agents/</code>.
+                  Loom checks {renderDiscoveryLocations(DISCOVERY_LOCATIONS.agents)}.
+                </p>
+                <p className="text-[10px]">
+                  Add markdown files to <code className="bg-secondary px-1 rounded">.github/agents/</code>.
                 </p>
               </div>
             )}

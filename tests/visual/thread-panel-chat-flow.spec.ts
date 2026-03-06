@@ -52,3 +52,46 @@ test('restores per-thread drafts when switching threads', async () => {
     maxDiffPixelRatio: 0.03,
   });
 });
+
+test('shows jump-to-latest while reviewing earlier chat history', async () => {
+  if (!appContext) throw new Error('App context not initialized');
+  const { page } = appContext;
+
+  await page.evaluate(() => {
+    const store = (window as any).__appStore;
+    const state = store.getState();
+    const threadId = state.createThread('Long chat thread', 'local');
+
+    for (let index = 0; index < 18; index += 1) {
+      state.addMessage(threadId, {
+        id: `user-${index}`,
+        role: 'user',
+        content: `Question ${index + 1}: ${'Need more context. '.repeat(3)}`,
+        timestamp: Date.now() + index,
+        status: 'done',
+      });
+      state.addMessage(threadId, {
+        id: `assistant-${index}`,
+        role: 'assistant',
+        content: `Answer ${index + 1}: ${'Here is a detailed response to keep the transcript tall. '.repeat(4)}`,
+        timestamp: Date.now() + index + 100,
+        status: 'done',
+      });
+    }
+
+    state.setTheme('light');
+    state.setActiveThread(threadId);
+  });
+
+  await expect(page.getByRole('heading', { name: 'Long chat thread' })).toBeVisible();
+  await page.getByTestId('thread-scroll-container').evaluate((element) => {
+    element.scrollTop = 0;
+    element.dispatchEvent(new Event('scroll', { bubbles: true }));
+  });
+  await expect(page.getByTestId('thread-jump-to-latest')).toBeVisible();
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+  await stabilizePageForScreenshot(page);
+  await expect(page.getByTestId('thread-panel')).toHaveScreenshot('thread-panel-jump-to-latest.png', {
+    maxDiffPixelRatio: 0.03,
+  });
+});

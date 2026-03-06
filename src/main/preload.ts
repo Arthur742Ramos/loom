@@ -40,6 +40,7 @@ const INVOKE_CHANNELS = [
   IPC.AGENT_LIST_SKILLS,
   IPC.AGENT_LIST_AGENTS,
   IPC.AGENT_LIST_PROJECT_MCP,
+  IPC.AGENT_INSPECT_PROJECT_MCP,
   IPC.PROJECT_SELECT_DIR,
   IPC.APP_GET_VERSION,
   IPC.UPDATER_CHECK,
@@ -69,7 +70,15 @@ const getListenerMap = (channel: string): WeakMap<IpcCallback, IpcSubscription> 
   return created;
 };
 
-contextBridge.exposeInMainWorld('electronAPI', {
+// Create the API implementation separately so it can be swapped in tests
+let invokeImpl = (channel: string, ...args: unknown[]) => {
+  if (isAllowedChannel(INVOKE_CHANNELS, channel)) {
+    return ipcRenderer.invoke(channel, ...args);
+  }
+  return Promise.reject(new Error(`IPC channel not allowed: ${channel}`));
+};
+
+const api = {
   isTestMode: process.env.LOOM_TEST_MODE === '1',
 
   // IPC send (fire-and-forget)
@@ -79,12 +88,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
     }
   },
 
-  // IPC invoke (request-response)
+  // IPC invoke (request-response) - delegates to swappable implementation
   invoke: (channel: string, ...args: unknown[]) => {
-    if (isAllowedChannel(INVOKE_CHANNELS, channel)) {
-      return ipcRenderer.invoke(channel, ...args);
-    }
-    return Promise.reject(new Error(`IPC channel not allowed: ${channel}`));
+    return invokeImpl(channel, ...args);
   },
 
   // IPC on (subscribe to events)
@@ -125,4 +131,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
       }
     }
   },
-});
+  ...(process.env.LOOM_TEST_MODE === '1'
+    ? {
+        // TEST ONLY: Allow overriding invoke implementation for deterministic screenshot states.
+        __setInvokeImpl: (fn: typeof invokeImpl) => {
+          invokeImpl = fn;
+        },
+      }
+    : {}),
+};
+
+contextBridge.exposeInMainWorld('electronAPI', api);

@@ -1,7 +1,12 @@
 import React, {
-  lazy, Suspense, useState, useRef, useEffect, useMemo,
+  lazy, Suspense, useState, useRef, useEffect, useMemo, useCallback, memo,
 } from 'react';
-import { useAppStore, ChatMessage } from '../store/appStore';
+import {
+  useAppStore,
+  ChatMessage,
+  GitHubUser,
+  ToolCallEntry,
+} from '../store/appStore';
 import { useShallow } from 'zustand/react/shallow';
 import { Button } from './ui/button';
 import { Avatar, AvatarImage, AvatarFallback } from './ui/avatar';
@@ -17,6 +22,7 @@ import { TokenCounter } from './TokenCounter';
 const THINKING_SUMMARY_LIMIT = 60;
 const THINKING_PREVIEW_LIMIT = 500;
 const THREAD_ID_SEPARATOR = '\u0000';
+const AUTO_SCROLL_BOTTOM_THRESHOLD = 48;
 
 type PendingPermissionRequest = {
   kind: string;
@@ -88,6 +94,35 @@ const previewThinking = (thinking: string, showFull: boolean): string => {
   return `${thinking.slice(0, THINKING_PREVIEW_LIMIT)}…`;
 };
 
+const splitToolCalls = (toolCalls?: ToolCallEntry[]) => {
+  const running: ToolCallEntry[] = [];
+  const errored: ToolCallEntry[] = [];
+  const done: ToolCallEntry[] = [];
+  const doneCounts = new Map<string, number>();
+
+  for (const toolCall of toolCalls || []) {
+    if (toolCall.status === 'running') {
+      running.push(toolCall);
+      continue;
+    }
+    if (toolCall.status === 'error') {
+      errored.push(toolCall);
+      continue;
+    }
+    done.push(toolCall);
+    doneCounts.set(toolCall.toolName, (doneCounts.get(toolCall.toolName) || 0) + 1);
+  }
+
+  return {
+    running,
+    errored,
+    done,
+    doneSummary: [...doneCounts.entries()]
+      .map(([name, count]) => (count > 1 ? `${name} ×${count}` : name))
+      .join(', '),
+  };
+};
+
 const pruneThreadMap = <T,>(
   values: Record<string, T>,
   validThreadIds: Set<string>,
@@ -111,6 +146,213 @@ const TerminalView = lazy(async () => {
 });
 
 const THREAD_TABS = ['chat', 'diff', 'terminal'] as const;
+
+type ThreadMessageItemProps = {
+  msg: ChatMessage;
+  isFirstMessage: boolean;
+  isActiveStreamingAssistant: boolean;
+  streamingStatus: string;
+  githubUser: GitHubUser | null;
+  showToolOutputDetails: boolean;
+  isThinkingExpanded: boolean;
+  isFullThinkingExpanded: boolean;
+  isToolsExpanded: boolean;
+  onToggleThinking: (messageId: string) => void;
+  onShowFullThinking: (messageId: string) => void;
+  onToggleToolCalls: (messageId: string) => void;
+};
+
+const ThreadMessageItem = memo(({
+  msg,
+  isFirstMessage,
+  isActiveStreamingAssistant,
+  streamingStatus,
+  githubUser,
+  showToolOutputDetails,
+  isThinkingExpanded,
+  isFullThinkingExpanded,
+  isToolsExpanded,
+  onToggleThinking,
+  onShowFullThinking,
+  onToggleToolCalls,
+}: ThreadMessageItemProps) => {
+  const hasAssistantDetails = msg.role === 'assistant'
+    && (
+      Boolean(msg.toolCalls?.length)
+      || Boolean(msg.thinking)
+      || (isActiveStreamingAssistant && Boolean(streamingStatus))
+    );
+  const isLongThinking = Boolean(msg.thinking && msg.thinking.length > THINKING_PREVIEW_LIMIT);
+  const thinkingSummary = useMemo(
+    () => (msg.thinking ? summarizeThinking(msg.thinking) : ''),
+    [msg.thinking],
+  );
+  const thinkingContent = useMemo(
+    () => (msg.thinking ? previewThinking(msg.thinking, isFullThinkingExpanded) : ''),
+    [isFullThinkingExpanded, msg.thinking],
+  );
+  const { running, errored, done, doneSummary } = useMemo(
+    () => splitToolCalls(msg.toolCalls),
+    [msg.toolCalls],
+  );
+  const authorName = msg.role === 'user'
+    ? (githubUser?.name || githubUser?.login || 'You')
+    : 'Copilot';
+
+  return (
+    <div className={cn('flex gap-3 py-3.5', !isFirstMessage && 'border-t')}>
+      <Avatar className="h-7 w-7 shrink-0">
+        {msg.role === 'user' && githubUser?.avatar_url ? (
+          <AvatarImage src={githubUser.avatar_url} alt={githubUser.login} />
+        ) : null}
+        <AvatarFallback className={cn(
+          msg.role === 'user'
+            ? 'bg-muted text-muted-foreground text-xs'
+            : 'bg-primary/10 text-primary text-xs',
+        )}>
+          {msg.role === 'user'
+            ? (githubUser?.login?.[0]?.toUpperCase() || 'U')
+            : <LoomIcon className="w-3.5 h-3.5" />}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex-1 min-w-0">
+        <span className="text-xs font-medium text-muted-foreground block mb-0.5">
+          {authorName}
+        </span>
+        {hasAssistantDetails && (
+          <div className="mb-2 space-y-1.5">
+            {msg.thinking && (
+              <div className="thinking-block" data-testid="thinking-block">
+                <button
+                  type="button"
+                  className="thinking-toggle"
+                  data-testid="thinking-toggle"
+                  onClick={() => onToggleThinking(msg.id)}
+                >
+                  <ChevronDown
+                    className={cn(
+                      'w-3 h-3 shrink-0 transition-transform',
+                      isThinkingExpanded ? 'rotate-0' : '-rotate-90',
+                    )}
+                  />
+                  <span className="thinking-toggle-label">Thinking</span>
+                  {!isThinkingExpanded && (
+                    <span className="thinking-toggle-summary">{thinkingSummary}</span>
+                  )}
+                  {!isThinkingExpanded && isActiveStreamingAssistant && (
+                    <span className="thinking-live-indicator" aria-hidden="true">
+                      <span className="thinking-live-dot" />
+                      <span className="thinking-live-dot" />
+                      <span className="thinking-live-dot" />
+                    </span>
+                  )}
+                </button>
+                {isThinkingExpanded && (
+                  <div className="thinking-content">
+                    <div className="thinking-content-text">{thinkingContent}</div>
+                    {isLongThinking && !isFullThinkingExpanded && (
+                      <button
+                        type="button"
+                        className="thinking-show-more"
+                        data-testid="thinking-show-more"
+                        onClick={() => onShowFullThinking(msg.id)}
+                      >
+                        Show more
+                      </button>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {isActiveStreamingAssistant && streamingStatus && (
+              <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                <span className="truncate">{streamingStatus}</span>
+              </div>
+            )}
+            {msg.toolCalls && msg.toolCalls.length > 0 && (
+              <div className="space-y-1">
+                {running.map((toolCall) => (
+                  <div key={toolCall.id} className="text-[11px] text-muted-foreground/80 flex items-center gap-2">
+                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                    <span className="truncate">{toolCall.toolName}</span>
+                  </div>
+                ))}
+                {errored.map((toolCall) => (
+                  <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
+                    <div className="flex items-center gap-2">
+                      <span className="text-destructive">✕</span>
+                      <span className="truncate">{toolCall.toolName}</span>
+                    </div>
+                    {toolCall.error && (
+                      <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
+                        {toolCall.error}
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {done.length > 0 && (
+                  <div>
+                    <button
+                      type="button"
+                      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
+                      onClick={() => onToggleToolCalls(msg.id)}
+                    >
+                      <ChevronDown className={cn('w-3 h-3 shrink-0 transition-transform', !isToolsExpanded && '-rotate-90')} />
+                      <Check className="w-3 h-3 shrink-0 text-emerald-600" />
+                      <span>{done.length} tool call{done.length !== 1 ? 's' : ''}</span>
+                      {!isToolsExpanded && doneSummary && (
+                        <span className="text-muted-foreground/50 truncate max-w-[200px]">{doneSummary}</span>
+                      )}
+                    </button>
+                    {isToolsExpanded && (
+                      <div className="ml-5 mt-1 space-y-0.5">
+                        {done.map((toolCall) => (
+                          <div key={toolCall.id} className="text-[11px] text-muted-foreground/60">
+                            <div className="flex items-center gap-2">
+                              <Check className="w-3 h-3 shrink-0 text-emerald-600/60" />
+                              <span className="truncate">{toolCall.toolName}</span>
+                            </div>
+                            {showToolOutputDetails && toolCall.result && (
+                              <div className="pl-5 mt-0.5 text-muted-foreground/50 whitespace-pre-wrap break-words">
+                                {toolCall.result}
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+        {msg.role === 'assistant' && msg.content ? (
+          <MarkdownMessage
+            content={msg.content}
+            className="text-[13.5px] leading-relaxed text-foreground select-text"
+          />
+        ) : msg.role === 'assistant' && msg.status === 'streaming' && !msg.content ? (
+          <span className="inline-flex gap-1 py-1">
+            <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+            <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+            <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
+          </span>
+        ) : (
+          <div className="text-[13.5px] leading-relaxed text-foreground whitespace-pre-wrap break-words select-text">
+            {msg.content}
+          </div>
+        )}
+        {msg.status === 'error' && (
+          <span className="text-destructive text-[11px] mt-1 block">Failed</span>
+        )}
+      </div>
+    </div>
+  );
+});
+
+ThreadMessageItem.displayName = 'ThreadMessageItem';
 
 export const ThreadPanel: React.FC = () => {
   const {
@@ -184,12 +426,12 @@ export const ThreadPanel: React.FC = () => {
   const [expandedThinkingByMessage, setExpandedThinkingByMessage] = useState<Record<string, boolean>>({});
   const [expandedFullThinkingByMessage, setExpandedFullThinkingByMessage] = useState<Record<string, boolean>>({});
   const [expandedToolCallsByMessage, setExpandedToolCallsByMessage] = useState<Record<string, boolean>>({});
-  const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const cancelTitleEditRef = useRef(false);
   const streamCleanupByThreadRef = useRef<Record<string, () => void>>({});
   const activeRequestIdByThreadRef = useRef<Record<string, string>>({});
+  const [isPinnedToBottom, setIsPinnedToBottom] = useState(true);
 
   const threadProjectPath = thread?.projectPath || projectPath || '';
   const isThreadRunning = thread?.status === 'running';
@@ -209,8 +451,10 @@ export const ThreadPanel: React.FC = () => {
       (level) => !supported || supported.length === 0 || supported.includes(level),
     );
   }, [currentModel]);
+  const lastMessageId = thread?.messages[thread.messages.length - 1]?.id || null;
+  const showJumpToLatest = activeTab === 'chat' && !isPinnedToBottom && (thread?.messages.length || 0) > 0;
 
-  const updateInputDraft = (threadId: string, updater: (current: string) => string) => {
+  const updateInputDraft = useCallback((threadId: string, updater: (current: string) => string) => {
     setInputByThread((prev) => {
       const current = prev[threadId] || '';
       const next = updater(current);
@@ -221,24 +465,41 @@ export const ThreadPanel: React.FC = () => {
       }
       return { ...prev, [threadId]: next };
     });
-  };
+  }, []);
 
-  const scrollToBottom = () => {
+  const scrollToBottom = useCallback((force = false) => {
     const el = scrollContainerRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
-  };
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    if (force) setIsPinnedToBottom(true);
+  }, []);
+
+  const isNearBottom = useCallback((element: HTMLDivElement) => (
+    element.scrollHeight - element.scrollTop - element.clientHeight <= AUTO_SCROLL_BOTTOM_THRESHOLD
+  ), []);
+
+  const handleChatScroll = useCallback(() => {
+    const element = scrollContainerRef.current;
+    if (!element) return;
+    const nextPinnedState = isNearBottom(element);
+    setIsPinnedToBottom((prev) => (prev === nextPinnedState ? prev : nextPinnedState));
+  }, [isNearBottom]);
 
   // Scroll on new messages and during streaming content growth.
   useEffect(() => {
-    if (!thread || activeTab !== 'chat') return;
+    if (!thread || activeTab !== 'chat' || !isPinnedToBottom) return;
     scrollToBottom();
-  }, [activeTab, thread?.messages, agentStatus]);
+  }, [activeTab, agentStatus, isPinnedToBottom, scrollToBottom, thread?.messages]);
 
   useEffect(() => () => {
     Object.values(streamCleanupByThreadRef.current).forEach((cleanup) => cleanup());
     streamCleanupByThreadRef.current = {};
     activeRequestIdByThreadRef.current = {};
   }, []);
+
+  useEffect(() => {
+    setIsPinnedToBottom(true);
+  }, [activeThreadId]);
 
   useEffect(() => {
     if (!editingTitleThreadId || editingTitleThreadId === activeThreadId) return;
@@ -292,7 +553,7 @@ export const ThreadPanel: React.FC = () => {
     return unsub;
   }, []);
 
-  const respondToPermission = (approved: boolean) => {
+  const respondToPermission = useCallback((approved: boolean) => {
     if (!activeThreadId) return;
     const pending = pendingPermissionByThread[activeThreadId];
     if (!pending) return;
@@ -301,7 +562,7 @@ export const ThreadPanel: React.FC = () => {
       const { [activeThreadId]: _ignored, ...rest } = prev;
       return rest;
     });
-  };
+  }, [activeThreadId, pendingPermissionByThread]);
 
   // Listen for user-input requests (ask_user tool) from the agent backend.
   useEffect(() => {
@@ -315,7 +576,7 @@ export const ThreadPanel: React.FC = () => {
     return unsub;
   }, []);
 
-  const respondToUserInput = (answer: string) => {
+  const respondToUserInput = useCallback((answer: string) => {
     if (!activeThreadId) return;
     const pending = pendingUserInputByThread[activeThreadId];
     if (!pending) return;
@@ -328,15 +589,19 @@ export const ThreadPanel: React.FC = () => {
       const { [activeThreadId]: _ignored, ...rest } = prev;
       return rest;
     });
-  };
+  }, [activeThreadId, pendingUserInputByThread]);
 
-  const toggleThinking = (messageId: string) => {
+  const toggleThinking = useCallback((messageId: string) => {
     setExpandedThinkingByMessage((prev) => ({ ...prev, [messageId]: !prev[messageId] }));
-  };
+  }, []);
 
-  const showFullThinking = (messageId: string) => {
+  const showFullThinking = useCallback((messageId: string) => {
     setExpandedFullThinkingByMessage((prev) => ({ ...prev, [messageId]: true }));
-  };
+  }, []);
+
+  const toggleToolCalls = useCallback((messageId: string) => {
+    setExpandedToolCallsByMessage((prev) => ({ ...prev, [messageId]: !prev[messageId] }));
+  }, []);
 
   const handleTabKeyDown = (
     event: React.KeyboardEvent<HTMLButtonElement>,
@@ -727,9 +992,11 @@ export const ThreadPanel: React.FC = () => {
       >
           <div
             ref={scrollContainerRef}
+            data-testid="thread-scroll-container"
             className="flex-1 min-h-0 overflow-y-auto"
             aria-live="polite"
             aria-busy={isThreadRunning}
+            onScroll={handleChatScroll}
           >
             <div className="px-8 py-4">
               {thread.messages.length === 0 && (
@@ -739,198 +1006,27 @@ export const ThreadPanel: React.FC = () => {
                   <p className="text-muted-foreground/60 text-xs">Copilot can write code, run commands, review diffs, and more</p>
                 </div>
               )}
-              {thread.messages.map((msg) => {
-                const isActiveStreamingAssistant = msg.role === 'assistant'
-                  && msg.status === 'streaming'
-                  && msg === thread.messages[thread.messages.length - 1];
-                const hasAssistantDetails = msg.role === 'assistant'
-                  && (
-                    Boolean(msg.toolCalls?.length)
-                    || Boolean(msg.thinking)
-                    || (isActiveStreamingAssistant && Boolean(agentStatus))
-                  );
-                const isThinkingExpanded = Boolean(expandedThinkingByMessage[msg.id]);
-                const isLongThinking = Boolean(msg.thinking && msg.thinking.length > THINKING_PREVIEW_LIMIT);
-                const isFullThinkingExpanded = Boolean(expandedFullThinkingByMessage[msg.id]);
-                const thinkingSummary = msg.thinking ? summarizeThinking(msg.thinking) : '';
-                const thinkingContent = msg.thinking
-                  ? previewThinking(msg.thinking, isFullThinkingExpanded)
-                  : '';
-
-                return (
-                  <div key={msg.id} className={cn('flex gap-3 py-3.5', msg.id !== thread.messages[0]?.id && 'border-t')}>
-                    <Avatar className="h-7 w-7 shrink-0">
-                      {msg.role === 'user' && githubUser?.avatar_url ? (
-                        <AvatarImage src={githubUser.avatar_url} alt={githubUser.login} />
-                      ) : null}
-                      <AvatarFallback className={cn(
-                        msg.role === 'user'
-                          ? 'bg-muted text-muted-foreground text-xs'
-                          : 'bg-primary/10 text-primary text-xs',
-                      )}>
-                        {msg.role === 'user'
-                          ? (githubUser?.login?.[0]?.toUpperCase() || 'U')
-                          : <LoomIcon className="w-3.5 h-3.5" />}
-                      </AvatarFallback>
-                    </Avatar>
-                    <div className="flex-1 min-w-0">
-                      <span className="text-xs font-medium text-muted-foreground block mb-0.5">
-                        {msg.role === 'user'
-                          ? (githubUser?.name || githubUser?.login || 'You')
-                          : 'Copilot'}
-                      </span>
-                      {hasAssistantDetails && (
-                        <div className="mb-2 space-y-1.5">
-                          {msg.thinking && (
-                            <div className="thinking-block" data-testid="thinking-block">
-                              <button
-                                type="button"
-                                className="thinking-toggle"
-                                data-testid="thinking-toggle"
-                                onClick={() => toggleThinking(msg.id)}
-                              >
-                                <ChevronDown
-                                  className={cn(
-                                    'w-3 h-3 shrink-0 transition-transform',
-                                    isThinkingExpanded ? 'rotate-0' : '-rotate-90',
-                                  )}
-                                />
-                                <span className="thinking-toggle-label">Thinking</span>
-                                {!isThinkingExpanded && (
-                                  <span className="thinking-toggle-summary">{thinkingSummary}</span>
-                                )}
-                                {!isThinkingExpanded && isActiveStreamingAssistant && (
-                                  <span className="thinking-live-indicator" aria-hidden="true">
-                                    <span className="thinking-live-dot" />
-                                    <span className="thinking-live-dot" />
-                                    <span className="thinking-live-dot" />
-                                  </span>
-                                )}
-                              </button>
-                              {isThinkingExpanded && (
-                                <div className="thinking-content">
-                                  <div className="thinking-content-text">{thinkingContent}</div>
-                                  {isLongThinking && !isFullThinkingExpanded && (
-                                    <button
-                                      type="button"
-                                      className="thinking-show-more"
-                                      data-testid="thinking-show-more"
-                                      onClick={() => showFullThinking(msg.id)}
-                                    >
-                                      Show more
-                                    </button>
-                                  )}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                          {isActiveStreamingAssistant && agentStatus && (
-                            <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-                              <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                              <span className="truncate">{agentStatus}</span>
-                            </div>
-                          )}
-                          {msg.toolCalls && msg.toolCalls.length > 0 && (() => {
-                            const running = msg.toolCalls.filter((tc) => tc.status === 'running');
-                            const errored = msg.toolCalls.filter((tc) => tc.status === 'error');
-                            const done = msg.toolCalls.filter((tc) => tc.status === 'done');
-                            const isToolsExpanded = Boolean(expandedToolCallsByMessage[msg.id]);
-
-                            // Build grouped summary for completed calls (e.g. "view ×12, grep ×3")
-                            const doneCounts = new Map<string, number>();
-                            for (const tc of done) {
-                              doneCounts.set(tc.toolName, (doneCounts.get(tc.toolName) || 0) + 1);
-                            }
-                            const doneSummary = [...doneCounts.entries()]
-                              .map(([name, count]) => count > 1 ? `${name} ×${count}` : name)
-                              .join(', ');
-
-                            return (
-                              <div className="space-y-1">
-                                {/* Running tool calls — always visible */}
-                                {running.map((toolCall) => (
-                                  <div key={toolCall.id} className="text-[11px] text-muted-foreground/80 flex items-center gap-2">
-                                    <Loader2 className="w-3 h-3 animate-spin shrink-0" />
-                                    <span className="truncate">{toolCall.toolName}</span>
-                                  </div>
-                                ))}
-                                {/* Errored tool calls — always visible */}
-                                {errored.map((toolCall) => (
-                                  <div key={toolCall.id} className="text-[11px] text-muted-foreground/80">
-                                    <div className="flex items-center gap-2">
-                                      <span className="text-destructive">✕</span>
-                                      <span className="truncate">{toolCall.toolName}</span>
-                                    </div>
-                                    {toolCall.error && (
-                                      <div className="pl-5 mt-0.5 text-destructive whitespace-pre-wrap break-words">
-                                        {toolCall.error}
-                                      </div>
-                                    )}
-                                  </div>
-                                ))}
-                                {/* Completed tool calls — collapsed summary */}
-                                {done.length > 0 && (
-                                  <div>
-                                    <button
-                                      type="button"
-                                      className="inline-flex items-center gap-1.5 text-[11px] text-muted-foreground/70 hover:text-muted-foreground transition-colors"
-                                      onClick={() => setExpandedToolCallsByMessage((prev) => ({ ...prev, [msg.id]: !prev[msg.id] }))}
-                                    >
-                                      <ChevronDown className={cn('w-3 h-3 shrink-0 transition-transform', !isToolsExpanded && '-rotate-90')} />
-                                      <Check className="w-3 h-3 shrink-0 text-emerald-600" />
-                                      <span>{done.length} tool call{done.length !== 1 ? 's' : ''}</span>
-                                      {!isToolsExpanded && doneSummary && (
-                                        <span className="text-muted-foreground/50 truncate max-w-[200px]">{doneSummary}</span>
-                                      )}
-                                    </button>
-                                    {isToolsExpanded && (
-                                      <div className="ml-5 mt-1 space-y-0.5">
-                                        {done.map((toolCall) => (
-                                          <div key={toolCall.id} className="text-[11px] text-muted-foreground/60">
-                                            <div className="flex items-center gap-2">
-                                              <Check className="w-3 h-3 shrink-0 text-emerald-600/60" />
-                                              <span className="truncate">{toolCall.toolName}</span>
-                                            </div>
-                                            {showToolOutputDetails && toolCall.result && (
-                                              <div className="pl-5 mt-0.5 text-muted-foreground/50 whitespace-pre-wrap break-words">
-                                                {toolCall.result}
-                                              </div>
-                                            )}
-                                          </div>
-                                        ))}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })()}
-                        </div>
-                      )}
-                      {msg.role === 'assistant' && msg.content ? (
-                        <MarkdownMessage
-                          content={msg.content}
-                          className="text-[13.5px] leading-relaxed text-foreground select-text"
-                        />
-                      ) : msg.role === 'assistant' && msg.status === 'streaming' && !msg.content ? (
-                        <span className="inline-flex gap-1 py-1">
-                          <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                          <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                          <span className="typing-dot w-1.5 h-1.5 bg-primary rounded-full" />
-                        </span>
-                      ) : (
-                        <div className="text-[13.5px] leading-relaxed text-foreground whitespace-pre-wrap break-words select-text">
-                          {msg.content}
-                        </div>
-                      )}
-                      {msg.status === 'error' && (
-                        <span className="text-destructive text-[11px] mt-1 block">Failed</span>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              <div ref={messagesEndRef} />
+              {thread.messages.map((msg, index) => (
+                <ThreadMessageItem
+                  key={msg.id}
+                  msg={msg}
+                  isFirstMessage={index === 0}
+                  isActiveStreamingAssistant={
+                    msg.role === 'assistant'
+                    && msg.status === 'streaming'
+                    && msg.id === lastMessageId
+                  }
+                  streamingStatus={msg.id === lastMessageId ? agentStatus : ''}
+                  githubUser={githubUser}
+                  showToolOutputDetails={showToolOutputDetails}
+                  isThinkingExpanded={Boolean(expandedThinkingByMessage[msg.id])}
+                  isFullThinkingExpanded={Boolean(expandedFullThinkingByMessage[msg.id])}
+                  isToolsExpanded={Boolean(expandedToolCallsByMessage[msg.id])}
+                  onToggleThinking={toggleThinking}
+                  onShowFullThinking={showFullThinking}
+                  onToggleToolCalls={toggleToolCalls}
+                />
+              ))}
             </div>
           </div>
 
@@ -1002,6 +1098,22 @@ export const ThreadPanel: React.FC = () => {
                   >Send</Button>
                 </div>
               )}
+            </div>
+          )}
+
+          {showJumpToLatest && (
+            <div className="px-8 pb-2 flex justify-end">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="thread-jump-to-latest"
+                className="h-8 rounded-full border-border/80 bg-background/95 text-xs shadow-sm"
+                onClick={() => scrollToBottom(true)}
+              >
+                <ChevronDown className="w-3.5 h-3.5" />
+                Jump to latest
+              </Button>
             </div>
           )}
 

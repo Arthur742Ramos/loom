@@ -1,4 +1,6 @@
 import { expect, Page, test } from '@playwright/test';
+import * as fs from 'fs';
+import * as path from 'path';
 import { createGitFixtureRepo, GitFixtureRepo } from '../utils/createGitFixtureRepo';
 import { launchLoomApp, LoomAppContext, setProjectInStore, stabilizePageForScreenshot } from '../utils/electronApp';
 
@@ -22,11 +24,42 @@ const setDiscoveryTestState = async (
   }, mode);
 };
 
-const launchSidebarApp = async (withProject = false): Promise<{
+const preparePopulatedDiscoveryRepo = (repoPath: string): void => {
+  const githubCopilotDir = path.join(repoPath, '.github', 'copilot');
+  fs.mkdirSync(path.join(githubCopilotDir, 'skills'), { recursive: true });
+  fs.mkdirSync(path.join(repoPath, '.github', 'agents'), { recursive: true });
+  fs.writeFileSync(path.join(repoPath, '.github', 'copilot-instructions.md'), '# Project instructions\nFollow the latest guidance.\n');
+  fs.writeFileSync(path.join(githubCopilotDir, 'skills', 'build.md'), '# Build\nRun the build before opening a PR.\n');
+  fs.writeFileSync(path.join(repoPath, '.github', 'agents', 'reviewer.agent.md'), '# Reviewer\nCheck changes for regressions.\n');
+  fs.writeFileSync(
+    path.join(githubCopilotDir, 'mcp.json'),
+    JSON.stringify({
+      servers: {
+        cloudbuild: {
+          url: 'https://example.invalid/mcp',
+        },
+      },
+    }, null, 2),
+  );
+};
+
+const prepareMcpRecoveryRepo = (repoPath: string): void => {
+  preparePopulatedDiscoveryRepo(repoPath);
+  fs.mkdirSync(path.join(repoPath, '.vscode'), { recursive: true });
+  fs.writeFileSync(path.join(repoPath, '.vscode', 'mcp.json'), '{invalid-json');
+};
+
+const launchSidebarApp = async (
+  withProject = false,
+  setupRepo?: (repoPath: string) => void,
+): Promise<{
   appContext: LoomAppContext;
   fixtureRepo: GitFixtureRepo | null;
 }> => {
   const fixtureRepo = withProject ? createGitFixtureRepo() : null;
+  if (fixtureRepo && setupRepo) {
+    setupRepo(fixtureRepo.repoPath);
+  }
   const appContext = await launchLoomApp();
   if (fixtureRepo) {
     await setProjectInStore(appContext.page, fixtureRepo.repoPath, 'fixture-project');
@@ -113,6 +146,40 @@ test('matches sidebar discovery error states', async () => {
     await expect(appContext.page.getByTestId('skills-error')).toBeVisible();
     await expect(appContext.page.getByTestId('agents-error')).toBeVisible();
     await expect(appContext.page.getByTestId('sidebar')).toHaveScreenshot('sidebar-discovery-errors.png', { maxDiffPixelRatio: 0.03 });
+  } finally {
+    await closeSidebarApp(appContext, fixtureRepo);
+  }
+});
+
+test('matches sidebar discovery populated states', async () => {
+  let appContext: LoomAppContext | null = null;
+  let fixtureRepo: GitFixtureRepo | null = null;
+
+  try {
+    ({ appContext, fixtureRepo } = await launchSidebarApp(true, preparePopulatedDiscoveryRepo));
+    await openDiscoverySections(appContext.page);
+
+    await expect(appContext.page.getByTestId('skills-summary')).toBeVisible();
+    await expect(appContext.page.getByTestId('agents-summary')).toBeVisible();
+    await expect(appContext.page.getByTestId('mcp-summary')).toBeVisible();
+    await expect(appContext.page.getByText('cloudbuild')).toBeVisible();
+    await expect(appContext.page.getByTestId('sidebar')).toHaveScreenshot('sidebar-discovery-populated.png', { maxDiffPixelRatio: 0.03 });
+  } finally {
+    await closeSidebarApp(appContext, fixtureRepo);
+  }
+});
+
+test('matches MCP recovery diagnostics in the sidebar', async () => {
+  let appContext: LoomAppContext | null = null;
+  let fixtureRepo: GitFixtureRepo | null = null;
+
+  try {
+    ({ appContext, fixtureRepo } = await launchSidebarApp(true, prepareMcpRecoveryRepo));
+    await appContext.page.getByRole('button', { name: 'MCP Servers' }).click();
+
+    await expect(appContext.page.getByTestId('mcp-diagnostics-warning')).toBeVisible();
+    await expect(appContext.page.getByText('Skipped .vscode/mcp.json because it contains invalid JSON.')).toBeVisible();
+    await expect(appContext.page.getByTestId('sidebar')).toHaveScreenshot('sidebar-discovery-recovery.png', { maxDiffPixelRatio: 0.03 });
   } finally {
     await closeSidebarApp(appContext, fixtureRepo);
   }

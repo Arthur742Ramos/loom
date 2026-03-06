@@ -264,6 +264,48 @@ describe('src/main/agent.ts', () => {
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });
 
+  it('inspectProjectMcp reports recovery warnings and the config source it used', async () => {
+    const mockIpcMain = createMockIpcMain();
+    vi.doMock('electron', () => ({ ipcMain: mockIpcMain.ipcMain }));
+
+    const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'loom-mcp-diagnostics-fixture-'));
+    const vscodeDir = path.join(tmpRoot, '.vscode');
+    const githubCopilotDir = path.join(tmpRoot, '.github', 'copilot');
+    fs.mkdirSync(vscodeDir, { recursive: true });
+    fs.mkdirSync(githubCopilotDir, { recursive: true });
+    fs.writeFileSync(path.join(vscodeDir, 'mcp.json'), '{invalid-json');
+    fs.writeFileSync(
+      path.join(githubCopilotDir, 'mcp.json'),
+      JSON.stringify({
+        servers: {
+          cloudbuild: {
+            url: 'https://example.invalid/mcp',
+          },
+        },
+      }),
+    );
+
+    const { inspectProjectMcp } = await import('../../../src/main/agent');
+    expect(inspectProjectMcp(tmpRoot)).toEqual({
+      servers: {
+        cloudbuild: {
+          url: 'https://example.invalid/mcp',
+          tools: ['*'],
+        },
+      },
+      searchedFiles: ['.vscode/mcp.json', '.github/copilot/mcp.json'],
+      sourceFile: '.github/copilot/mcp.json',
+      issues: [
+        {
+          severity: 'error',
+          message: 'Skipped .vscode/mcp.json because it contains invalid JSON.',
+        },
+      ],
+    });
+
+    fs.rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
   it('setupAgentHandlers registers channels and supports deterministic test mode', async () => {
     process.env.LOOM_TEST_MODE = '1';
     process.env.LOOM_TEST_AGENT_RESPONSE = 'fixture response';
@@ -291,6 +333,7 @@ describe('src/main/agent.ts', () => {
     expect(mockIpcMain.handlers.has('agent:list-skills')).toBe(true);
     expect(mockIpcMain.handlers.has('agent:list-agents')).toBe(true);
     expect(mockIpcMain.handlers.has('agent:list-project-mcp')).toBe(true);
+    expect(mockIpcMain.handlers.has('agent:inspect-project-mcp')).toBe(true);
 
     const listener = mockIpcMain.getListener('agent:send');
     expect(listener).toBeDefined();
@@ -481,6 +524,12 @@ describe('src/main/agent.ts', () => {
     await expect(mockIpcMain.invoke('agent:list-skills', filePath)).resolves.toEqual([]);
     await expect(mockIpcMain.invoke('agent:list-agents', '')).resolves.toEqual([]);
     await expect(mockIpcMain.invoke('agent:list-project-mcp', undefined)).resolves.toEqual({});
+    await expect(mockIpcMain.invoke('agent:inspect-project-mcp', filePath)).resolves.toEqual({
+      servers: {},
+      searchedFiles: [],
+      sourceFile: null,
+      issues: [],
+    });
 
     fs.rmSync(tmpRoot, { recursive: true, force: true });
   });

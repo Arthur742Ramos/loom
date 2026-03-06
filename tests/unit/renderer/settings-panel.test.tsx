@@ -1,5 +1,5 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SettingsPanel } from '../../../src/renderer/components/SettingsPanel';
 import { useAppStore } from '../../../src/renderer/store/appStore';
 import { createMockIpcRenderer, installElectronMock, MockIpcRenderer } from '../../utils/mockElectronRenderer';
@@ -8,6 +8,14 @@ import { resetAppStore } from '../../utils/resetAppStore';
 describe('SettingsPanel', () => {
   let ipcRenderer: MockIpcRenderer;
   let restoreElectronMock: () => void;
+
+  const deferred = <T,>() => {
+    let resolve!: (value: T) => void;
+    const promise = new Promise<T>((res) => {
+      resolve = res;
+    });
+    return { promise, resolve };
+  };
 
   const renderOpenSettings = (
     state: Partial<Pick<ReturnType<typeof useAppStore.getState>, 'theme' | 'projectPath' | 'projectName'>> = {},
@@ -95,8 +103,60 @@ describe('SettingsPanel', () => {
     });
 
     await waitFor(() => {
-      expect(screen.getByText(/Loom v0\.3\.0 · Powered by GitHub Copilot/i)).toBeInTheDocument();
+      expect(screen.getByText('v0.3.0')).toBeInTheDocument();
     });
+  });
+
+  it('shows a version placeholder while app metadata is loading', async () => {
+    const versionRequest = deferred<{ version?: string }>();
+    ipcRenderer.invoke.mockImplementation(async (channel: string, projectPath?: string) => {
+      if (channel === 'app:get-version') return versionRequest.promise;
+      if (channel === 'auth:get-user') return { authenticated: true, user: { login: 'octocat' } };
+      if (channel === 'agent:list-models') return { success: true, models: [{ id: 'gpt-4.1' }] };
+      if (channel === 'agent:list-project-mcp') {
+        return projectPath ? { cloudbuild: { url: 'https://cloudbuild.example.com/mcp' } } : {};
+      }
+      if (channel === 'updater:check') return { available: false };
+      return null;
+    });
+
+    renderOpenSettings();
+
+    await waitFor(() => expect(screen.getByTestId('settings-version-loading')).toBeInTheDocument());
+
+    versionRequest.resolve({ version: '0.3.0' });
+
+    await waitFor(() => {
+      expect(screen.getByText('v0.3.0')).toBeInTheDocument();
+    });
+  });
+
+  it('reuses the loaded app version when reopening settings', async () => {
+    const getVersion = vi.fn(async () => ({ version: '0.3.0' }));
+    ipcRenderer.invoke.mockImplementation(async (channel: string, projectPath?: string) => {
+      if (channel === 'app:get-version') return getVersion();
+      if (channel === 'auth:get-user') return { authenticated: true, user: { login: 'octocat' } };
+      if (channel === 'agent:list-models') return { success: true, models: [{ id: 'gpt-4.1' }] };
+      if (channel === 'agent:list-project-mcp') {
+        return projectPath ? { cloudbuild: { url: 'https://cloudbuild.example.com/mcp' } } : {};
+      }
+      if (channel === 'updater:check') return { available: false };
+      return null;
+    });
+
+    renderOpenSettings();
+
+    await waitFor(() => expect(screen.getByText('v0.3.0')).toBeInTheDocument());
+    expect(getVersion).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByTestId('settings-close-button'));
+
+    act(() => {
+      useAppStore.getState().setShowSettings(true);
+    });
+
+    await waitFor(() => expect(screen.getByText('v0.3.0')).toBeInTheDocument());
+    expect(getVersion).toHaveBeenCalledTimes(1);
   });
 
   it('runs integration diagnostics and renders check summaries', async () => {
@@ -114,5 +174,40 @@ describe('SettingsPanel', () => {
     expect(screen.getByTestId('settings-diagnostics-copilot')).toHaveTextContent('1 model(s) available');
     expect(screen.getByTestId('settings-diagnostics-mcp')).toHaveTextContent('cloudbuild');
     expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-project-mcp', '/tmp/loom-project');
+  });
+
+  it('runs integration checks in parallel and shows a loading state', async () => {
+    const authRequest = deferred<{ authenticated: boolean; user?: { login?: string } }>();
+    const modelsRequest = deferred<{ success: boolean; models?: { id: string }[] }>();
+    const mcpRequest = deferred<Record<string, unknown>>();
+
+    ipcRenderer.invoke.mockImplementation(async (channel: string, projectPath?: string) => {
+      if (channel === 'app:get-version') return { version: '0.3.0' };
+      if (channel === 'auth:get-user') return authRequest.promise;
+      if (channel === 'agent:list-models') return modelsRequest.promise;
+      if (channel === 'agent:list-project-mcp') return mcpRequest.promise;
+      if (channel === 'updater:check') return { available: false };
+      return null;
+    });
+
+    renderOpenSettings({
+      projectPath: '/tmp/loom-project',
+      projectName: 'loom-project',
+    });
+
+    fireEvent.click(screen.getByTestId('settings-run-diagnostics'));
+
+    await waitFor(() => expect(screen.getByTestId('settings-diagnostics-loading')).toBeInTheDocument());
+    expect(screen.getByTestId('settings-run-diagnostics')).toBeDisabled();
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('auth:get-user');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-models');
+    expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-project-mcp', '/tmp/loom-project');
+
+    authRequest.resolve({ authenticated: true, user: { login: 'octocat' } });
+    modelsRequest.resolve({ success: true, models: [{ id: 'gpt-4.1' }] });
+    mcpRequest.resolve({ cloudbuild: { url: 'https://cloudbuild.example.com/mcp' } });
+
+    await waitFor(() => expect(screen.getByTestId('settings-diagnostics-results')).toBeInTheDocument());
+    expect(screen.getByTestId('settings-diagnostics-github')).toHaveTextContent('@octocat');
   });
 });

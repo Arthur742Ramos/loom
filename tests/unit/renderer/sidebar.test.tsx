@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sidebar } from '../../../src/renderer/components/Sidebar';
 import { useAppStore } from '../../../src/renderer/store/appStore';
 import { createMockIpcRenderer, installElectronMock, MockIpcRenderer } from '../../utils/mockElectronRenderer';
@@ -55,8 +55,19 @@ describe('Sidebar', () => {
     expect(screen.getByTestId('agents-no-project')).toHaveTextContent('Open a project to discover custom agents.');
 
     const discoveryCalls = ipcRenderer.invoke.mock.calls
-      .filter(([channel]) => String(channel).startsWith('agent:list-'));
+      .filter(([channel]) => String(channel).startsWith('agent:list-') || channel === 'agent:inspect-project-mcp');
     expect(discoveryCalls).toHaveLength(0);
+  });
+
+  it('lets users choose a project from inline discovery guidance', async () => {
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    fireEvent.click(screen.getByTestId('skills-open-project'));
+
+    await waitFor(() => expect(ipcRenderer.invoke).toHaveBeenCalledWith('project:select-dir'));
+    await waitFor(() => expect(useAppStore.getState().projectPath).toBe('/tmp/sidebar-project'));
+    await waitFor(() => expect(screen.getByTestId('skills-empty-state')).toBeInTheDocument());
   });
 
   it('creates a new thread for the active project', async () => {
@@ -173,7 +184,7 @@ describe('Sidebar', () => {
       if (channel === 'git:checkout') {
         return { success: true, current: branchName };
       }
-      if (channel === 'agent:list-skills' || channel === 'agent:list-agents' || channel === 'agent:list-project-mcp') {
+      if (channel === 'agent:list-skills' || channel === 'agent:list-agents' || channel === 'agent:inspect-project-mcp') {
         const nextCount = (callCounts.get(channel) ?? 0) + 1;
         callCounts.set(channel, nextCount);
         if (nextCount === 1) {
@@ -186,8 +197,13 @@ describe('Sidebar', () => {
       if (channel === 'agent:list-agents') {
         return [{ name: 'agent-success', path: `${projectPath}\\agent.md`, description: 'Agent retry' }];
       }
-      if (channel === 'agent:list-project-mcp') {
-        return { 'mcp-success': { command: 'npx', args: ['retry'] } };
+      if (channel === 'agent:inspect-project-mcp') {
+        return {
+          servers: { 'mcp-success': { command: 'npx', args: ['retry'] } },
+          searchedFiles: ['.vscode/mcp.json', '.github/copilot/mcp.json'],
+          sourceFile: '.github/copilot/mcp.json',
+          issues: [],
+        };
       }
       return null;
     });
@@ -212,6 +228,90 @@ describe('Sidebar', () => {
     expect(screen.getByText('agent-success')).toBeInTheDocument();
   });
 
+  it('shows discovery summaries and MCP recovery diagnostics for populated projects', async () => {
+    ipcRenderer.invoke.mockImplementation(async (channel: string, projectPath?: string) => {
+      if (channel === 'auth:get-user') return { authenticated: false };
+      if (channel === 'agent:list-skills') {
+        return [
+          {
+            name: 'copilot-instructions',
+            path: `${projectPath}\\.github\\copilot-instructions.md`,
+            description: 'Project-level instructions',
+          },
+          {
+            name: 'build',
+            path: `${projectPath}\\.github\\copilot\\skills\\build.md`,
+            description: 'Build the project',
+          },
+        ];
+      }
+      if (channel === 'agent:list-agents') {
+        return [{ name: 'reviewer', path: `${projectPath}\\.github\\agents\\reviewer.agent.md`, description: 'Review changes' }];
+      }
+      if (channel === 'agent:inspect-project-mcp') {
+        return {
+          servers: {
+            cloudbuild: { url: 'https://example.invalid/mcp' },
+          },
+          searchedFiles: ['.vscode/mcp.json', '.github/copilot/mcp.json'],
+          sourceFile: '.github/copilot/mcp.json',
+          issues: [
+            {
+              severity: 'error',
+              message: 'Skipped .vscode/mcp.json because it contains invalid JSON.',
+            },
+          ],
+        };
+      }
+      return null;
+    });
+    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+
+    await waitFor(() => expect(screen.getByTestId('skills-summary')).toBeInTheDocument());
+    expect(screen.getByTestId('skills-summary')).toHaveTextContent('1 skill ready to mention, plus project instructions.');
+    expect(screen.getByTestId('agents-summary')).toHaveTextContent('1 custom agent ready to mention.');
+    expect(screen.getByTestId('mcp-diagnostics-warning')).toHaveTextContent('Recovered project MCP discovery with warnings.');
+    expect(screen.getByText('cloudbuild')).toBeInTheDocument();
+  });
+
+  it('copies discovery error details for follow-up debugging', async () => {
+    const originalClipboard = navigator.clipboard;
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    ipcRenderer.invoke.mockImplementation(async (channel: string) => {
+      if (channel === 'auth:get-user') return { authenticated: false };
+      if (channel === 'agent:list-skills') throw new Error('EACCES: permission denied');
+      return null;
+    });
+    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+
+    await waitFor(() => expect(screen.getByTestId('skills-error')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('skills-copy-details'));
+
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Skills discovery')));
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining('EACCES: permission denied'));
+    expect(screen.getByTestId('skills-copy-details')).toHaveTextContent('Copied details');
+
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: originalClipboard,
+    });
+  });
+
   it('reloads expanded skills/agents/MCP sections on project change and ignores stale results', async () => {
     const deferred = <T,>() => {
       let resolve!: (value: T) => void;
@@ -234,7 +334,7 @@ describe('Sidebar', () => {
       if (channel === 'agent:list-agents') {
         return projectArg === '/tmp/project-a' ? agentsA.promise : agentsB.promise;
       }
-      if (channel === 'agent:list-project-mcp') {
+      if (channel === 'agent:inspect-project-mcp') {
         return projectArg === '/tmp/project-a' ? mcpA.promise : mcpB.promise;
       }
       return null;
@@ -262,12 +362,17 @@ describe('Sidebar', () => {
     await waitFor(() => {
       expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-skills', '/tmp/project-b');
       expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-agents', '/tmp/project-b');
-      expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:list-project-mcp', '/tmp/project-b');
+      expect(ipcRenderer.invoke).toHaveBeenCalledWith('agent:inspect-project-mcp', '/tmp/project-b');
     });
 
     skillsB.resolve([{ name: 'skill-b', path: '/b.md', description: 'B' }]);
     agentsB.resolve([{ name: 'agent-b', path: '/b.agent.md', description: 'B' }]);
-    mcpB.resolve({ 'mcp-b': { command: 'npx', args: ['b'] } });
+    mcpB.resolve({
+      servers: { 'mcp-b': { command: 'npx', args: ['b'] } },
+      searchedFiles: ['.vscode/mcp.json', '.github/copilot/mcp.json'],
+      sourceFile: '.github/copilot/mcp.json',
+      issues: [],
+    });
 
     await waitFor(() => expect(screen.getByText('skill-b')).toBeInTheDocument());
     expect(screen.getByText('agent-b')).toBeInTheDocument();
@@ -275,7 +380,12 @@ describe('Sidebar', () => {
 
     skillsA.resolve([{ name: 'skill-a', path: '/a.md', description: 'A' }]);
     agentsA.resolve([{ name: 'agent-a', path: '/a.agent.md', description: 'A' }]);
-    mcpA.resolve({ 'mcp-a': { command: 'npx', args: ['a'] } });
+    mcpA.resolve({
+      servers: { 'mcp-a': { command: 'npx', args: ['a'] } },
+      searchedFiles: ['.vscode/mcp.json', '.github/copilot/mcp.json'],
+      sourceFile: '.github/copilot/mcp.json',
+      issues: [],
+    });
 
     await waitFor(() => {
       expect(screen.queryByText('skill-a')).not.toBeInTheDocument();

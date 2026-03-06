@@ -2,6 +2,7 @@ import { ipcMain } from 'electron';
 import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
+import type { DiscoveryIssue, ProjectMcpDiscoveryResult } from '../shared/types';
 
 /**
  * Agent backend — powered by @github/copilot-sdk.
@@ -799,31 +800,96 @@ export function loadAgentsFromProject(cwd?: string): ProjectAgentConfig[] {
 }
 
 /** Load and normalize project MCP server definitions from supported config files. */
-export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpServerConfig> {
+const toProjectRelativePath = (projectRoot: string, targetPath: string): string => {
+  const relativePath = path.relative(projectRoot, targetPath);
+  return relativePath.split(path.sep).join('/');
+};
+
+export function inspectProjectMcp(cwd?: string): ProjectMcpDiscoveryResult {
   const projectRoot = resolveProjectDirectory(cwd);
-  if (!projectRoot) return {};
+  if (!projectRoot) {
+    return {
+      servers: {},
+      searchedFiles: [],
+      sourceFile: null,
+      issues: [],
+    };
+  }
   const candidates = [
     path.join(projectRoot, '.vscode', 'mcp.json'),
     path.join(projectRoot, '.github', 'copilot', 'mcp.json'),
   ];
-  for (const file of candidates) {
+  const searchedFiles = candidates.map((file) => toProjectRelativePath(projectRoot, file));
+  const issues: DiscoveryIssue[] = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const file = candidates[index];
+    const displayPath = searchedFiles[index];
     try {
       if (!fs.existsSync(file)) continue;
       const content = readUtf8File(file);
-      if (content === null) continue;
-      const raw = JSON.parse(content);
+      if (content === null) {
+        issues.push({
+          severity: 'error',
+          message: `Couldn't read ${displayPath}.`,
+        });
+        continue;
+      }
+
+      let raw: unknown;
+      try {
+        raw = JSON.parse(content);
+      } catch {
+        issues.push({
+          severity: 'error',
+          message: `Skipped ${displayPath} because it contains invalid JSON.`,
+        });
+        continue;
+      }
+
       const serversCandidate = isPlainObject(raw) && isPlainObject(raw.servers) ? raw.servers : raw;
-      if (!isPlainObject(serversCandidate)) continue;
+      if (!isPlainObject(serversCandidate)) {
+        issues.push({
+          severity: 'warning',
+          message: `Skipped ${displayPath} because it does not define an object of MCP servers.`,
+        });
+        continue;
+      }
+
       const result: Record<string, NormalizedMcpServerConfig> = {};
       for (const [name, cfg] of Object.entries(serversCandidate)) {
         const normalized = normalizeMcpServerConfig(cfg);
         if (!normalized) continue;
         result[name] = normalized;
       }
-      return result;
+      const invalidEntryCount = Object.keys(serversCandidate).length - Object.keys(result).length;
+      if (invalidEntryCount > 0) {
+        issues.push({
+          severity: Object.keys(result).length > 0 ? 'warning' : 'error',
+          message: `Skipped ${invalidEntryCount} invalid MCP server entr${invalidEntryCount === 1 ? 'y' : 'ies'} in ${displayPath}.`,
+        });
+      }
+
+      return {
+        servers: result,
+        searchedFiles,
+        sourceFile: displayPath,
+        issues,
+      };
     } catch { /* skip invalid files */ }
   }
-  return {};
+
+  return {
+    servers: {},
+    searchedFiles,
+    sourceFile: null,
+    issues,
+  };
+}
+
+/** Load and normalize project MCP server definitions from supported config files. */
+export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpServerConfig> {
+  return inspectProjectMcp(cwd).servers;
 }
 
 /** Return all existing skill directories that should be passed to the SDK session config. */
@@ -1248,6 +1314,10 @@ export function setupAgentHandlers() {
     const projectRoot = resolveProjectDirectory(projectPath);
     if (!projectRoot) return {};
     return loadMcpFromProject(projectRoot);
+  });
+
+  ipcMain.handle('agent:inspect-project-mcp', async (_event, projectPath: string) => {
+    return inspectProjectMcp(projectPath);
   });
 
   // Warm up the SDK client in the background so the first user message doesn't

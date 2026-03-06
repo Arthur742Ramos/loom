@@ -1,6 +1,7 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
+import { useShallow } from 'zustand/react/shallow';
 import { useAppStore } from '../store/appStore';
-import { X, Sun, Moon, Monitor, Download } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Download, Loader2 } from 'lucide-react';
 import { Button } from './ui/button';
 import { cn } from '../lib/utils';
 
@@ -12,6 +13,8 @@ interface UpdaterCheckResult {
 interface AppVersionResult {
   version?: string;
 }
+
+type AppVersionStatus = 'idle' | 'loading' | 'ready' | 'error';
 
 type IntegrationCheckStatus = 'ok' | 'warning' | 'error';
 
@@ -37,19 +40,86 @@ const statusBadgeClass: Record<IntegrationCheckStatus, string> = {
   error: 'border-red-500/30 bg-red-500/10 text-red-400',
 };
 
+const themeOptions = [
+  { id: 'light' as const, label: 'Light', icon: Sun },
+  { id: 'dark' as const, label: 'Dark', icon: Moon },
+  { id: 'system' as const, label: 'System', icon: Monitor },
+];
+
+const diagnosticsLoadingCards = [
+  { label: 'GitHub Auth', testId: 'settings-diagnostics-github-loading' },
+  { label: 'Copilot Models', testId: 'settings-diagnostics-copilot-loading' },
+  { label: 'Project MCP', testId: 'settings-diagnostics-mcp-loading' },
+];
+
+const IntegrationStatusCard: React.FC<{ label: string; check: IntegrationCheck; testId: string }> = ({
+  label,
+  check,
+  testId,
+}) => (
+  <div className="rounded-lg border border-border bg-background/50 p-3" data-testid={testId}>
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-xs font-medium text-foreground">{label}</p>
+      <span
+        className={cn(
+          'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
+          statusBadgeClass[check.status],
+        )}
+      >
+        {check.status}
+      </span>
+    </div>
+    <p className="mt-1 text-xs text-muted-foreground">{check.summary}</p>
+    {check.action ? <p className="mt-1 text-[11px] text-foreground/90">{check.action}</p> : null}
+  </div>
+);
+
+const IntegrationStatusSkeleton: React.FC<{ label: string; testId: string }> = ({ label, testId }) => (
+  <div
+    className="rounded-lg border border-border bg-background/50 p-3"
+    data-testid={testId}
+    aria-hidden="true"
+  >
+    <div className="flex items-center justify-between gap-3">
+      <p className="text-xs font-medium text-foreground">{label}</p>
+      <span className="inline-flex h-5 w-16 rounded-full bg-secondary/70" />
+    </div>
+    <div className="mt-2 h-3 w-full rounded bg-secondary/60" />
+    <div className="mt-1 h-3 w-3/4 rounded bg-secondary/50" />
+  </div>
+);
+
 export const SettingsPanel: React.FC = () => {
-  const showSettings = useAppStore((s) => s.showSettings);
-  const setShowSettings = useAppStore((s) => s.setShowSettings);
-  const theme = useAppStore((s) => s.theme);
-  const setTheme = useAppStore((s) => s.setTheme);
-  const projectPath = useAppStore((s) => s.projectPath);
-  const showToolOutputDetails = useAppStore((s) => s.showToolOutputDetails);
-  const setShowToolOutputDetails = useAppStore((s) => s.setShowToolOutputDetails);
+  const {
+    projectPath,
+    setShowSettings,
+    setShowToolOutputDetails,
+    setTheme,
+    showSettings,
+    showToolOutputDetails,
+    theme,
+  } = useAppStore(
+    useShallow((state) => ({
+      projectPath: state.projectPath,
+      setShowSettings: state.setShowSettings,
+      setShowToolOutputDetails: state.setShowToolOutputDetails,
+      setTheme: state.setTheme,
+      showSettings: state.showSettings,
+      showToolOutputDetails: state.showToolOutputDetails,
+      theme: state.theme,
+    })),
+  );
   const [updateStatus, setUpdateStatus] = useState<{ status: string; version?: string } | null>(null);
-  const [appVersion, setAppVersion] = useState<string>('…');
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [appVersionStatus, setAppVersionStatus] = useState<AppVersionStatus>('idle');
   const [diagnosticsRunning, setDiagnosticsRunning] = useState(false);
   const [diagnostics, setDiagnostics] = useState<IntegrationDiagnostics | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const mountedRef = useRef(true);
+
+  useEffect(() => () => {
+    mountedRef.current = false;
+  }, []);
 
   useEffect(() => {
     const api = window.electronAPI;
@@ -75,20 +145,27 @@ export const SettingsPanel: React.FC = () => {
   useEffect(() => {
     if (!showSettings) return;
     const api = window.electronAPI;
-    if (!api) return;
-    let mounted = true;
-    api.invoke<AppVersionResult>('app:get-version')
+    if (!api) {
+      setAppVersion('unknown');
+      setAppVersionStatus('error');
+      return;
+    }
+    if (appVersionStatus !== 'idle') return;
+    setAppVersionStatus('loading');
+    void api.invoke<AppVersionResult>('app:get-version')
       .then((result) => {
-        if (!mounted) return;
-        if (result?.version) setAppVersion(result.version);
+        if (!mountedRef.current) return;
+        setAppVersion(result?.version || 'unknown');
+        setAppVersionStatus(result?.version ? 'ready' : 'error');
       })
       .catch(() => {
-        if (mounted) setAppVersion('unknown');
+        if (!mountedRef.current) return;
+        setAppVersion('unknown');
+        setAppVersionStatus('error');
       });
-    return () => { mounted = false; };
-  }, [showSettings]);
+  }, [appVersionStatus, showSettings]);
 
-  const runDiagnostics = async () => {
+  const runDiagnostics = useCallback(async () => {
     const api = window.electronAPI;
     if (!api) {
       setDiagnostics({
@@ -114,113 +191,112 @@ export const SettingsPanel: React.FC = () => {
 
     setDiagnosticsRunning(true);
     const checkedAt = Date.now();
+    try {
+      const [authResult, modelResult, mcpResult] = await Promise.all([
+        api.invoke<{ authenticated: boolean; user?: { login?: string } }>('auth:get-user')
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error: getErrorMessage(error) })),
+        api.invoke<{ success: boolean; models?: { id: string }[]; error?: string }>('agent:list-models')
+          .then((value) => ({ ok: true as const, value }))
+          .catch((error: unknown) => ({ ok: false as const, error: getErrorMessage(error) })),
+        projectPath
+          ? api.invoke<Record<string, unknown>>('agent:list-project-mcp', projectPath)
+            .then((value) => ({ ok: true as const, value }))
+            .catch((error: unknown) => ({ ok: false as const, error: getErrorMessage(error) }))
+          : Promise.resolve({ ok: true as const, value: {} as Record<string, unknown> }),
+      ]);
 
-    const authResult = await api.invoke<{ authenticated: boolean; user?: { login?: string } }>('auth:get-user')
-      .then((value) => ({ ok: true as const, value }))
-      .catch((error: unknown) => ({ ok: false as const, error: getErrorMessage(error) }));
+      if (!mountedRef.current) return;
 
-    const modelResult = await api.invoke<{ success: boolean; models?: { id: string }[]; error?: string }>('agent:list-models')
-      .then((value) => ({ ok: true as const, value }))
-      .catch((error: unknown) => ({ ok: false as const, error: getErrorMessage(error) }));
-
-    const mcpResult = projectPath
-      ? await api.invoke<Record<string, unknown>>('agent:list-project-mcp', projectPath)
-        .then((value) => ({ ok: true as const, value }))
-        .catch((error: unknown) => ({ ok: false as const, error: getErrorMessage(error) }))
-      : ({ ok: true as const, value: {} as Record<string, unknown> });
-
-    const githubAuth: IntegrationCheck = authResult.ok
-      ? authResult.value.authenticated
-        ? {
-            status: 'ok',
-            summary: `Authenticated as @${authResult.value.user?.login || 'unknown-user'}.`,
-          }
+      const githubAuth: IntegrationCheck = authResult.ok
+        ? authResult.value.authenticated
+          ? {
+              status: 'ok',
+              summary: `Authenticated as @${authResult.value.user?.login || 'unknown-user'}.`,
+            }
+          : {
+              status: 'error',
+              summary: 'Not authenticated with GitHub.',
+              action: 'Run gh auth login, then re-run diagnostics.',
+            }
         : {
             status: 'error',
-            summary: 'Not authenticated with GitHub.',
-            action: 'Run gh auth login, then re-run diagnostics.',
-          }
-      : {
-          status: 'error',
-          summary: `Failed to query GitHub auth status: ${authResult.error}`,
-          action: 'Run gh auth login and check network connectivity.',
-        };
+            summary: `Failed to query GitHub auth status: ${authResult.error}`,
+            action: 'Run gh auth login and check network connectivity.',
+          };
 
-    const copilot: IntegrationCheck = modelResult.ok
-      ? modelResult.value.success && (modelResult.value.models?.length || 0) > 0
-        ? {
-            status: 'ok',
-            summary: `${modelResult.value.models?.length || 0} model(s) available from Copilot.`,
-          }
+      const copilot: IntegrationCheck = modelResult.ok
+        ? modelResult.value.success && (modelResult.value.models?.length || 0) > 0
+          ? {
+              status: 'ok',
+              summary: `${modelResult.value.models?.length || 0} model(s) available from Copilot.`,
+            }
+          : {
+              status: 'error',
+              summary: `Copilot model listing failed: ${modelResult.value.error || 'No models returned'}`,
+              action: 'Confirm Copilot CLI is installed/authenticated and your subscription is active.',
+            }
         : {
             status: 'error',
-            summary: `Copilot model listing failed: ${modelResult.value.error || 'No models returned'}`,
-            action: 'Confirm Copilot CLI is installed/authenticated and your subscription is active.',
-          }
-      : {
-          status: 'error',
-          summary: `Failed to query Copilot models: ${modelResult.error}`,
-          action: 'Ensure copilot CLI is installed and reachable from Loom.',
-        };
+            summary: `Failed to query Copilot models: ${modelResult.error}`,
+            action: 'Ensure Copilot CLI is installed and reachable from Loom.',
+          };
 
-    let mcp: IntegrationCheck;
-    if (!projectPath) {
-      mcp = {
-        status: 'warning',
-        summary: 'No project selected, so MCP validation was skipped.',
-        action: 'Open a project folder and run diagnostics again.',
-      };
-    } else if (!mcpResult.ok) {
-      mcp = {
-        status: 'error',
-        summary: `Failed to read project MCP config: ${mcpResult.error}`,
-        action: 'Check .vscode/mcp.json or .github/copilot/mcp.json for syntax errors.',
-      };
-    } else {
-      const serverNames = Object.keys(mcpResult.value);
-      if (serverNames.length > 0) {
-        mcp = {
-          status: 'ok',
-          summary: `${serverNames.length} MCP server(s) configured: ${serverNames.join(', ')}`,
-        };
-      } else {
+      let mcp: IntegrationCheck;
+      if (!projectPath) {
         mcp = {
           status: 'warning',
-          summary: 'No project MCP servers configured.',
-          action: 'Add .vscode/mcp.json or .github/copilot/mcp.json if you use MCP tools.',
+          summary: 'No project selected, so MCP validation was skipped.',
+          action: 'Open a project folder and run diagnostics again.',
         };
+      } else if (!mcpResult.ok) {
+        mcp = {
+          status: 'error',
+          summary: `Failed to read project MCP config: ${mcpResult.error}`,
+          action: 'Check .vscode/mcp.json or .github/copilot/mcp.json for syntax errors.',
+        };
+      } else {
+        const serverNames = Object.keys(mcpResult.value);
+        if (serverNames.length > 0) {
+          mcp = {
+            status: 'ok',
+            summary: `${serverNames.length} MCP server(s) configured: ${serverNames.join(', ')}`,
+          };
+        } else {
+          mcp = {
+            status: 'warning',
+            summary: 'No project MCP servers configured.',
+            action: 'Add .vscode/mcp.json or .github/copilot/mcp.json if you use MCP tools.',
+          };
+        }
+      }
+
+      setDiagnostics({ checkedAt, githubAuth, copilot, mcp });
+    } catch (error: unknown) {
+      if (!mountedRef.current) return;
+      setDiagnostics({
+        checkedAt: Date.now(),
+        githubAuth: {
+          status: 'error',
+          summary: `Diagnostics failed: ${getErrorMessage(error)}`,
+        },
+        copilot: {
+          status: 'error',
+          summary: 'Copilot diagnostics did not complete.',
+        },
+        mcp: {
+          status: 'warning',
+          summary: 'MCP diagnostics did not complete.',
+        },
+      });
+    } finally {
+      if (mountedRef.current) {
+        setDiagnosticsRunning(false);
       }
     }
-
-    setDiagnostics({ checkedAt, githubAuth, copilot, mcp });
-    setDiagnosticsRunning(false);
-  };
-
-  const renderCheck = (label: string, check: IntegrationCheck, testId: string) => (
-    <div className="rounded-lg border border-border bg-background/50 p-3" data-testid={testId}>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-xs font-medium text-foreground">{label}</p>
-        <span
-          className={cn(
-            'inline-flex items-center rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide',
-            statusBadgeClass[check.status],
-          )}
-        >
-          {check.status}
-        </span>
-      </div>
-      <p className="mt-1 text-xs text-muted-foreground">{check.summary}</p>
-      {check.action ? <p className="mt-1 text-[11px] text-foreground/90">{check.action}</p> : null}
-    </div>
-  );
+  }, [projectPath]);
 
   if (!showSettings) return null;
-
-  const themes = [
-    { id: 'light' as const, label: 'Light', icon: Sun },
-    { id: 'dark' as const, label: 'Dark', icon: Moon },
-    { id: 'system' as const, label: 'System', icon: Monitor },
-  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40" data-testid="settings-panel"
@@ -252,9 +328,10 @@ export const SettingsPanel: React.FC = () => {
         <div className="px-6 py-5">
           <h3 className="text-sm font-medium text-foreground mb-3">Appearance</h3>
           <div className="grid grid-cols-3 gap-2">
-            {themes.map(({ id, label, icon: Icon }) => (
+            {themeOptions.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
+                type="button"
                 onClick={() => setTheme(id)}
                 aria-label={`Set ${label} theme`}
                 aria-pressed={theme === id}
@@ -296,7 +373,7 @@ export const SettingsPanel: React.FC = () => {
         </div>
 
         {/* Integrations */}
-        <div className="px-6 py-5 border-t">
+        <div className="px-6 py-5 border-t" aria-busy={diagnosticsRunning}>
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <h3 className="text-sm font-medium text-foreground">Integrations</h3>
@@ -308,48 +385,61 @@ export const SettingsPanel: React.FC = () => {
               data-testid="settings-run-diagnostics"
               size="sm"
               variant="outline"
-              className="h-7 text-xs"
+              className="h-7 gap-1.5 text-xs"
               disabled={diagnosticsRunning}
-              onClick={() => {
-                runDiagnostics().catch((error: unknown) => {
-                  setDiagnostics({
-                    checkedAt: Date.now(),
-                    githubAuth: {
-                      status: 'error',
-                      summary: `Diagnostics failed: ${getErrorMessage(error)}`,
-                    },
-                    copilot: {
-                      status: 'error',
-                      summary: 'Copilot diagnostics did not complete.',
-                    },
-                    mcp: {
-                      status: 'warning',
-                      summary: 'MCP diagnostics did not complete.',
-                    },
-                  });
-                  setDiagnosticsRunning(false);
-                });
-              }}
+              aria-label={diagnosticsRunning ? 'Running diagnostics' : 'Run diagnostics'}
+              onClick={() => { void runDiagnostics(); }}
             >
-              {diagnosticsRunning ? 'Running…' : 'Run diagnostics'}
+              {diagnosticsRunning ? (
+                <>
+                  <Loader2 className="w-3 h-3 animate-spin" />
+                  Running…
+                </>
+              ) : 'Run diagnostics'}
             </Button>
           </div>
-          {diagnostics ? (
+          {diagnosticsRunning ? (
+            <div className="space-y-2" data-testid="settings-diagnostics-loading" aria-live="polite" role="status">
+              <p className="flex items-center gap-2 text-xs text-muted-foreground">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                Checking integrations…
+              </p>
+              {diagnosticsLoadingCards.map(({ label, testId }) => (
+                <IntegrationStatusSkeleton key={testId} label={label} testId={testId} />
+              ))}
+            </div>
+          ) : diagnostics ? (
             <div className="space-y-2" data-testid="settings-diagnostics-results">
-              {renderCheck('GitHub Auth', diagnostics.githubAuth, 'settings-diagnostics-github')}
-              {renderCheck('Copilot Models', diagnostics.copilot, 'settings-diagnostics-copilot')}
-              {renderCheck('Project MCP', diagnostics.mcp, 'settings-diagnostics-mcp')}
+              <IntegrationStatusCard label="GitHub Auth" check={diagnostics.githubAuth} testId="settings-diagnostics-github" />
+              <IntegrationStatusCard label="Copilot Models" check={diagnostics.copilot} testId="settings-diagnostics-copilot" />
+              <IntegrationStatusCard label="Project MCP" check={diagnostics.mcp} testId="settings-diagnostics-mcp" />
               <p className="text-[11px] text-muted-foreground">
                 Last checked at {new Date(diagnostics.checkedAt).toLocaleTimeString()}.
               </p>
             </div>
-          ) : null}
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              Run diagnostics to validate your GitHub login, Copilot access, and project MCP setup.
+            </p>
+          )}
         </div>
 
         {/* Version & Updates */}
         <div className="px-6 py-4 border-t">
           <div className="flex items-center justify-between" aria-live="polite">
-            <p className="text-[11px] text-muted-foreground">Loom v{appVersion} · Powered by GitHub Copilot</p>
+            <p className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
+              <span>Loom</span>
+              {appVersionStatus === 'idle' || appVersionStatus === 'loading' ? (
+                <span
+                  className="inline-flex h-3 w-12 rounded bg-secondary/70"
+                  data-testid="settings-version-loading"
+                  aria-label="Loading app version"
+                />
+              ) : (
+                <span>v{appVersion ?? 'unknown'}</span>
+              )}
+              <span>· Powered by GitHub Copilot</span>
+            </p>
             {updateStatus?.status === 'downloaded' ? (
               <Button
                 size="sm"
@@ -363,6 +453,7 @@ export const SettingsPanel: React.FC = () => {
               <span className="text-[11px] text-primary">Downloading v{updateStatus.version}…</span>
             ) : (
               <button
+                type="button"
                 aria-label="Check for updates"
                 className="text-[11px] text-muted-foreground hover:text-foreground transition-colors"
                 onClick={async () => {
