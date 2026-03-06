@@ -8,6 +8,12 @@ import { resetAppStore } from '../../utils/resetAppStore';
 describe('SettingsPanel', () => {
   let ipcRenderer: MockIpcRenderer;
   let restoreElectronMock: () => void;
+  const clickAndFlush = async (element: Element) => {
+    await act(async () => {
+      fireEvent.click(element);
+      await Promise.resolve();
+    });
+  };
 
   const deferred = <T,>() => {
     let resolve!: (value: T) => void;
@@ -17,12 +23,13 @@ describe('SettingsPanel', () => {
     return { promise, resolve };
   };
 
-  const renderOpenSettings = (
+  const renderOpenSettings = async (
     state: Partial<Pick<ReturnType<typeof useAppStore.getState>, 'theme' | 'projectPath' | 'projectName'>> = {},
   ) => {
-    act(() => {
+    await act(async () => {
       useAppStore.setState({ showSettings: true, ...state });
       render(<SettingsPanel />);
+      await Promise.resolve();
     });
   };
 
@@ -51,52 +58,58 @@ describe('SettingsPanel', () => {
   });
 
   it('renders when showSettings is true', async () => {
-    renderOpenSettings();
+    await renderOpenSettings();
     expect(screen.getByTestId('settings-panel')).toBeInTheDocument();
   });
 
-  it('does not render when showSettings is false', () => {
-    useAppStore.setState({ showSettings: false });
-    render(<SettingsPanel />);
+  it('does not render when showSettings is false', async () => {
+    await act(async () => {
+      useAppStore.setState({ showSettings: false });
+      render(<SettingsPanel />);
+      await Promise.resolve();
+    });
     expect(screen.queryByTestId('settings-panel')).not.toBeInTheDocument();
   });
 
   it('theme selection updates store', async () => {
-    renderOpenSettings({ theme: 'system' });
+    await renderOpenSettings({ theme: 'system' });
 
-    fireEvent.click(screen.getByText('Dark'));
+    await clickAndFlush(screen.getByText('Dark'));
     expect(useAppStore.getState().theme).toBe('dark');
 
-    fireEvent.click(screen.getByText('Light'));
+    await clickAndFlush(screen.getByText('Light'));
     expect(useAppStore.getState().theme).toBe('light');
   });
 
   it('backdrop click closes panel', async () => {
-    renderOpenSettings();
+    await renderOpenSettings();
 
     const backdrop = screen.getByTestId('settings-panel');
-    fireEvent.click(backdrop);
+    await clickAndFlush(backdrop);
 
     expect(useAppStore.getState().showSettings).toBe(false);
   });
 
   it('X button closes panel', async () => {
-    renderOpenSettings();
+    await renderOpenSettings();
 
-    fireEvent.click(screen.getByTestId('settings-close-button'));
+    await clickAndFlush(screen.getByTestId('settings-close-button'));
     expect(useAppStore.getState().showSettings).toBe(false);
   });
 
   it('Escape key closes panel', async () => {
-    renderOpenSettings();
+    await renderOpenSettings();
 
-    fireEvent.keyDown(window, { key: 'Escape' });
+    await act(async () => {
+      fireEvent.keyDown(window, { key: 'Escape' });
+      await Promise.resolve();
+    });
     expect(useAppStore.getState().showSettings).toBe(false);
   });
 
   it('displays runtime app version from IPC', async () => {
     ipcRenderer.invoke.mockImplementationOnce(async () => ({ version: '0.3.0' }));
-    renderOpenSettings();
+    await renderOpenSettings();
 
     await act(async () => {
       await Promise.resolve();
@@ -120,7 +133,7 @@ describe('SettingsPanel', () => {
       return null;
     });
 
-    renderOpenSettings();
+    await renderOpenSettings();
 
     await waitFor(() => expect(screen.getByTestId('settings-version-loading')).toBeInTheDocument());
 
@@ -144,7 +157,7 @@ describe('SettingsPanel', () => {
       return null;
     });
 
-    renderOpenSettings();
+    await renderOpenSettings();
 
     await waitFor(() => expect(screen.getByText('v0.3.0')).toBeInTheDocument());
     expect(getVersion).toHaveBeenCalledTimes(1);
@@ -160,13 +173,14 @@ describe('SettingsPanel', () => {
   });
 
   it('runs integration diagnostics and renders check summaries', async () => {
-    renderOpenSettings({
+    await renderOpenSettings({
       projectPath: '/tmp/loom-project',
       projectName: 'loom-project',
     });
 
     await act(async () => {
       fireEvent.click(screen.getByTestId('settings-run-diagnostics'));
+      await Promise.resolve();
     });
 
     await waitFor(() => expect(screen.getByTestId('settings-diagnostics-results')).toBeInTheDocument());
@@ -190,12 +204,12 @@ describe('SettingsPanel', () => {
       return null;
     });
 
-    renderOpenSettings({
+    await renderOpenSettings({
       projectPath: '/tmp/loom-project',
       projectName: 'loom-project',
     });
 
-    fireEvent.click(screen.getByTestId('settings-run-diagnostics'));
+    await clickAndFlush(screen.getByTestId('settings-run-diagnostics'));
 
     await waitFor(() => expect(screen.getByTestId('settings-diagnostics-loading')).toBeInTheDocument());
     expect(screen.getByTestId('settings-run-diagnostics')).toBeDisabled();

@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ThreadPanel } from '../../../src/renderer/components/ThreadPanel';
 import { TooltipProvider } from '../../../src/renderer/components/ui/tooltip';
@@ -10,27 +10,47 @@ describe('ThreadPanel', () => {
   let ipcRenderer: MockIpcRenderer;
   let restoreRequire: () => void;
   let threadId: string;
+  let originalRequestAnimationFrame: typeof window.requestAnimationFrame;
+  let originalCancelAnimationFrame: typeof window.cancelAnimationFrame;
+  const renderThreadPanel = async () => {
+    await act(async () => {
+      render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+      await Promise.resolve();
+    });
+  };
 
   beforeEach(() => {
     resetAppStore();
     ipcRenderer = createMockIpcRenderer();
     restoreRequire = installElectronMock(ipcRenderer);
+    originalRequestAnimationFrame = window.requestAnimationFrame;
+    originalCancelAnimationFrame = window.cancelAnimationFrame;
+    window.requestAnimationFrame = ((callback: FrameRequestCallback) => {
+      callback(0);
+      return 0;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = (() => {}) as typeof window.cancelAnimationFrame;
 
-    const store = useAppStore.getState();
-    store.setProject('/tmp/project', 'project');
-    threadId = store.createThread('Test thread', 'local');
-    store.setActiveThread(threadId);
-    store.setPermissionMode('auto');
-    store.addMcpServer('filesystem', { command: 'npx', args: ['-y', 'server-filesystem'], tools: ['*'] });
+    act(() => {
+      const store = useAppStore.getState();
+      store.setProject('/tmp/project', 'project');
+      threadId = store.createThread('Test thread', 'local');
+      store.setActiveThread(threadId);
+      store.setPermissionMode('auto');
+      store.addMcpServer('filesystem', { command: 'npx', args: ['-y', 'server-filesystem'], tools: ['*'] });
+    });
   });
 
   afterEach(() => {
+    cleanup();
+    window.requestAnimationFrame = originalRequestAnimationFrame;
+    window.cancelAnimationFrame = originalCancelAnimationFrame;
     restoreRequire();
     resetAppStore();
   });
 
   it('sends message payload and handles streamed completion', async () => {
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const input = screen.getByTestId('thread-input');
     fireEvent.change(input, { target: { value: 'Hello from test' } });
@@ -103,7 +123,10 @@ describe('ThreadPanel', () => {
     await waitFor(() => expect(screen.getByText('Tool output')).toBeInTheDocument());
     const tokenCounter = screen.getByTestId('token-counter');
     expect(tokenCounter).toHaveTextContent('1.5K tokens');
-    fireEvent.focus(tokenCounter);
+    await act(async () => {
+      fireEvent.focus(tokenCounter);
+      await Promise.resolve();
+    });
     await waitFor(() => expect(screen.getByTestId('token-counter-tooltip')).toBeInTheDocument());
     const tokenTooltip = screen.getByTestId('token-counter-tooltip');
     expect(tokenTooltip).toHaveTextContent('Prompt');
@@ -116,7 +139,7 @@ describe('ThreadPanel', () => {
   });
 
   it('collapses long thinking and expands on demand', async () => {
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const input = screen.getByTestId('thread-input');
     fireEvent.change(input, { target: { value: 'Show long reasoning' } });
@@ -154,7 +177,7 @@ describe('ThreadPanel', () => {
   });
 
   it('shows a fallback error message when stream error content is missing', async () => {
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const input = screen.getByTestId('thread-input');
     fireEvent.change(input, { target: { value: 'Trigger error fallback' } });
@@ -182,7 +205,7 @@ describe('ThreadPanel', () => {
   });
 
   it('marks tool calls done even when tool_end omits toolCallId', async () => {
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const input = screen.getByTestId('thread-input');
     fireEvent.change(input, { target: { value: 'Run tool without id' } });
@@ -234,7 +257,7 @@ describe('ThreadPanel', () => {
     const secondThreadId = store.createThread('Second thread', 'local');
     store.setActiveThread(threadId);
 
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     act(() => {
       ipcRenderer.emit('agent:permission-request', secondThreadId, {
@@ -276,7 +299,7 @@ describe('ThreadPanel', () => {
     const secondThreadId = store.createThread('Second thread', 'local');
     store.setActiveThread(threadId);
 
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const input = screen.getByTestId('thread-input') as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: 'Draft for thread one' } });
@@ -305,7 +328,7 @@ describe('ThreadPanel', () => {
   });
 
   it('shows jump-to-latest when scrolled away from the bottom and preserves scroll position', async () => {
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const scrollContainer = screen.getByTestId('thread-scroll-container');
     let scrollTop = 0;
@@ -375,7 +398,7 @@ describe('ThreadPanel', () => {
     const secondThreadId = store.createThread('Second thread', 'local');
     store.setActiveThread(threadId);
 
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     fireEvent.doubleClick(screen.getByRole('heading', { name: 'Test thread' }));
     const titleInput = screen.getByDisplayValue('Test thread');
@@ -390,9 +413,9 @@ describe('ThreadPanel', () => {
     expect(useAppStore.getState().threads.find((thread) => thread.id === secondThreadId)?.title).toBe('Second thread');
   });
 
-  it('prevents sending another prompt while the thread is running', () => {
+  it('prevents sending another prompt while the thread is running', async () => {
     useAppStore.getState().updateThread(threadId, { status: 'running' });
-    render(<TooltipProvider><ThreadPanel /></TooltipProvider>);
+    await renderThreadPanel();
 
     const input = screen.getByTestId('thread-input');
     expect(input).toBeDisabled();

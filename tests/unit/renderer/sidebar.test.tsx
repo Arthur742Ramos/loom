@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { Sidebar } from '../../../src/renderer/components/Sidebar';
 import { useAppStore } from '../../../src/renderer/store/appStore';
@@ -8,6 +8,30 @@ import { resetAppStore } from '../../utils/resetAppStore';
 describe('Sidebar', () => {
   let ipcRenderer: MockIpcRenderer;
   let restoreRequire: () => void;
+  const clickAndFlush = async (element: Element) => {
+    await act(async () => {
+      fireEvent.click(element);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  };
+  const changeAndFlush = async (element: Element, value: string) => {
+    await act(async () => {
+      fireEvent.change(element, { target: { value } });
+      await Promise.resolve();
+    });
+  };
+  const renderSidebar = async () => {
+    await act(async () => {
+      render(<Sidebar />);
+      await Promise.resolve();
+    });
+  };
+  const setProject = (projectPath: string, projectName: string) => {
+    act(() => {
+      useAppStore.getState().setProject(projectPath, projectName);
+    });
+  };
 
   beforeEach(() => {
     resetAppStore();
@@ -33,22 +57,23 @@ describe('Sidebar', () => {
   });
 
   afterEach(() => {
+    cleanup();
     restoreRequire();
     resetAppStore();
   });
 
-  it('shows a helpful empty state when no projects are configured', () => {
-    render(<Sidebar />);
+  it('shows a helpful empty state when no projects are configured', async () => {
+    await renderSidebar();
     expect(screen.getByText('No project opened yet')).toBeInTheDocument();
     expect(screen.getByText('Choose a folder to start')).toBeInTheDocument();
   });
 
-  it('shows inline discovery guidance without an active project', () => {
-    render(<Sidebar />);
+  it('shows inline discovery guidance without an active project', async () => {
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'MCP Servers' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Agents' }));
 
     expect(screen.getByTestId('mcp-no-project')).toHaveTextContent('Open a project to discover MCP servers.');
     expect(screen.getByTestId('skills-no-project')).toHaveTextContent('Open a project to discover skills.');
@@ -60,10 +85,10 @@ describe('Sidebar', () => {
   });
 
   it('lets users choose a project from inline discovery guidance', async () => {
-    render(<Sidebar />);
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
-    fireEvent.click(screen.getByTestId('skills-open-project'));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByTestId('skills-open-project'));
 
     await waitFor(() => expect(ipcRenderer.invoke).toHaveBeenCalledWith('project:select-dir'));
     await waitFor(() => expect(useAppStore.getState().projectPath).toBe('/tmp/sidebar-project'));
@@ -71,10 +96,10 @@ describe('Sidebar', () => {
   });
 
   it('creates a new thread for the active project', async () => {
-    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+    setProject('/tmp/sidebar-project', 'sidebar-project');
 
-    render(<Sidebar />);
-    fireEvent.click(screen.getByTestId('new-thread-button'));
+    await renderSidebar();
+    await clickAndFlush(screen.getByTestId('new-thread-button'));
 
     await waitFor(() => expect(useAppStore.getState().threads).toHaveLength(1));
     expect(useAppStore.getState().threads[0].projectPath).toBe('/tmp/sidebar-project');
@@ -98,14 +123,14 @@ describe('Sidebar', () => {
       }
       return null;
     });
-    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+    setProject('/tmp/sidebar-project', 'sidebar-project');
 
-    render(<Sidebar />);
+    await renderSidebar();
 
     const branchSwitcher = await screen.findByTestId('project-branch-switcher');
     await waitFor(() => expect(branchSwitcher).toHaveValue('main'));
 
-    fireEvent.change(branchSwitcher, { target: { value: 'feature/neat-switcher' } });
+    await changeAndFlush(branchSwitcher, 'feature/neat-switcher');
 
     await waitFor(() =>
       expect(ipcRenderer.invoke).toHaveBeenCalledWith(
@@ -131,10 +156,10 @@ describe('Sidebar', () => {
       return null;
     });
 
-    render(<Sidebar />);
+    await renderSidebar();
 
     await waitFor(() => expect(screen.getByTestId('login-button')).not.toBeDisabled());
-    fireEvent.click(screen.getByTestId('login-button'));
+    await clickAndFlush(screen.getByTestId('login-button'));
     await waitFor(() =>
       expect(ipcRenderer.invoke).toHaveBeenCalledWith('auth:login'),
     );
@@ -144,26 +169,30 @@ describe('Sidebar', () => {
     expect(screen.getByText('ABCD-1234')).toBeInTheDocument();
 
     // Simulate auth completion via IPC event
-    ipcRenderer.emit('auth:login-complete', {
-      authenticated: true,
-      user: { login: 'octocat', name: 'Octo Cat', avatar_url: 'https://example.com/avatar.png' },
+    await act(async () => {
+      ipcRenderer.emit('auth:login-complete', {
+        authenticated: true,
+        user: { login: 'octocat', name: 'Octo Cat', avatar_url: 'https://example.com/avatar.png' },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
     });
     await waitFor(() => expect(useAppStore.getState().githubUser?.login).toBe('octocat'));
 
-    fireEvent.click(screen.getByTestId('logout-button'));
+    await clickAndFlush(screen.getByTestId('logout-button'));
     await waitFor(() =>
       expect(ipcRenderer.invoke).toHaveBeenCalledWith('auth:logout'),
     );
   });
 
   it('shows helpful empty states when discovery finds nothing for the active project', async () => {
-    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+    setProject('/tmp/sidebar-project', 'sidebar-project');
 
-    render(<Sidebar />);
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'MCP Servers' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Agents' }));
 
     await waitFor(() => expect(screen.getByTestId('mcp-empty-state')).toBeInTheDocument());
     expect(screen.getByTestId('skills-empty-state')).toHaveTextContent('No project skills found.');
@@ -207,21 +236,21 @@ describe('Sidebar', () => {
       }
       return null;
     });
-    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+    setProject('/tmp/sidebar-project', 'sidebar-project');
 
-    render(<Sidebar />);
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'MCP Servers' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Agents' }));
 
     await waitFor(() => expect(screen.getByTestId('mcp-error')).toBeInTheDocument());
     expect(screen.getByTestId('skills-error')).toHaveTextContent("Couldn't load project skills.");
     expect(screen.getByTestId('agents-error')).toHaveTextContent("Couldn't load project agents.");
 
-    fireEvent.click(screen.getByTestId('mcp-retry'));
-    fireEvent.click(screen.getByTestId('skills-retry'));
-    fireEvent.click(screen.getByTestId('agents-retry'));
+    await clickAndFlush(screen.getByTestId('mcp-retry'));
+    await clickAndFlush(screen.getByTestId('skills-retry'));
+    await clickAndFlush(screen.getByTestId('agents-retry'));
 
     await waitFor(() => expect(screen.getByText('mcp-success')).toBeInTheDocument());
     expect(screen.getByText('skill-success')).toBeInTheDocument();
@@ -265,13 +294,13 @@ describe('Sidebar', () => {
       }
       return null;
     });
-    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+    setProject('/tmp/sidebar-project', 'sidebar-project');
 
-    render(<Sidebar />);
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'MCP Servers' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Agents' }));
 
     await waitFor(() => expect(screen.getByTestId('skills-summary')).toBeInTheDocument());
     expect(screen.getByTestId('skills-summary')).toHaveTextContent('1 skill ready to mention, plus project instructions.');
@@ -293,14 +322,14 @@ describe('Sidebar', () => {
       if (channel === 'agent:list-skills') throw new Error('EACCES: permission denied');
       return null;
     });
-    useAppStore.getState().setProject('/tmp/sidebar-project', 'sidebar-project');
+    setProject('/tmp/sidebar-project', 'sidebar-project');
 
-    render(<Sidebar />);
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
 
     await waitFor(() => expect(screen.getByTestId('skills-error')).toBeInTheDocument());
-    fireEvent.click(screen.getByTestId('skills-copy-details'));
+    await clickAndFlush(screen.getByTestId('skills-copy-details'));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith(expect.stringContaining('Skills discovery')));
     expect(writeText).toHaveBeenCalledWith(expect.stringContaining('EACCES: permission denied'));
@@ -340,14 +369,13 @@ describe('Sidebar', () => {
       return null;
     });
 
-    const store = useAppStore.getState();
-    store.setProject('/tmp/project-a', 'project-a');
+    setProject('/tmp/project-a', 'project-a');
 
-    render(<Sidebar />);
+    await renderSidebar();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Skills' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Agents' }));
-    fireEvent.click(screen.getByRole('button', { name: 'MCP Servers' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Skills' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'Agents' }));
+    await clickAndFlush(screen.getByRole('button', { name: 'MCP Servers' }));
 
     await waitFor(() => {
       expect(screen.getByTestId('skills-loading')).toBeInTheDocument();

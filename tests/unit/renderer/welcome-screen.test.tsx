@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { WelcomeScreen } from '../../../src/renderer/components/WelcomeScreen';
 import { useAppStore } from '../../../src/renderer/store/appStore';
@@ -20,13 +20,17 @@ describe('WelcomeScreen', () => {
   });
 
   afterEach(() => {
+    cleanup();
     restoreRequire();
     resetAppStore();
   });
 
   it('opens project picker and saves selected project', async () => {
     render(<WelcomeScreen />);
-    fireEvent.click(screen.getByTestId('welcome-add-project-button'));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId('welcome-add-project-button'));
+      await Promise.resolve();
+    });
 
     await waitFor(() =>
       expect(useAppStore.getState().projectPath).toBe('/tmp/loom-project'),
