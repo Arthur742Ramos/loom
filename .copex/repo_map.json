@@ -1,7 +1,7 @@
 {
   "version": 1,
-  "generated_at": "2026-03-05T01:11:36.407276+00:00",
-  "root": "/home/arthur/Loom",
+  "generated_at": "2026-03-07T01:57:41.278377+00:00",
+  "root": "/home/arthur/clawd/loom",
   "files": {
     "playwright.config.ts": {
       "path": "playwright.config.ts",
@@ -14,8 +14,8 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672908433137591,
-      "size": 690
+      "mtime_ns": 1772848153437335632,
+      "size": 733
     },
     "postcss.config.js": {
       "path": "postcss.config.js",
@@ -26,11 +26,85 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946110038607,
+      "mtime_ns": 1772848153437335632,
       "size": 83
     },
     "src/main/agent.ts": {
       "path": "src/main/agent.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../shared/types",
+        "child_process",
+        "electron",
+        "fs",
+        "path"
+      ],
+      "classes": [],
+      "functions": [
+        "asOptionalPermissionMode",
+        "asOptionalReasoningEffort",
+        "asOptionalString",
+        "cacheModelListResult",
+        "completeLock",
+        "createStreamDispatcher",
+        "dispose",
+        "enqueue",
+        "fetchModelList",
+        "findCopilotPath",
+        "finish",
+        "flush",
+        "getClient",
+        "getErrorMessage",
+        "getFirstMeaningfulLine",
+        "getListModelsResult",
+        "getOrCreateSession",
+        "getProjectSkillDirectories",
+        "getScriptedTestEvents",
+        "getThreadLockCountForTests",
+        "inferProvider",
+        "inspectProjectMcp",
+        "isConnectionError",
+        "isNonEmptyString",
+        "isPlainObject",
+        "listMarkdownFiles",
+        "loadAgentsFromProject",
+        "loadClientClass",
+        "loadMcpFromProject",
+        "nextFallbackToolCallId",
+        "normalizeAgentRequest",
+        "normalizeCustomAgents",
+        "normalizeMcpServerConfig",
+        "normalizeMcpServers",
+        "normalizeModelList",
+        "normalizeReasoningEfforts",
+        "normalizeUsagePayload",
+        "onPermissionRequest",
+        "onUserInputRequest",
+        "pickTokenNumber",
+        "readUtf8File",
+        "resetClient",
+        "resolveProjectDirectory",
+        "resolveRunningToolCallId",
+        "runOnce",
+        "send",
+        "sendStream",
+        "setClientForTests",
+        "setupAgentHandlers",
+        "sleep",
+        "toProjectRelativePath",
+        "toScriptedEventList",
+        "toStringArray",
+        "toStringRecord",
+        "toTokenNumber"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153442335721,
+      "size": 46467
+    },
+    "src/main/auth.ts": {
+      "path": "src/main/auth.ts",
       "language": "typescript",
       "parser": "regex",
       "imports": [
@@ -41,49 +115,29 @@
       ],
       "classes": [],
       "functions": [
-        "findCopilotPath",
-        "getClient",
-        "getOrCreateSession",
-        "isConnectionError",
-        "loadAgentsFromProject",
-        "loadClientClass",
-        "loadMcpFromProject",
-        "onPermissionRequest",
-        "onUserInputRequest",
-        "resetClient",
-        "runOnce",
-        "setupAgentHandlers"
-      ],
-      "methods": [],
-      "calls": {},
-      "mtime_ns": 1772672872327506078,
-      "size": 18210
-    },
-    "src/main/auth.ts": {
-      "path": "src/main/auth.ts",
-      "language": "typescript",
-      "parser": "regex",
-      "imports": [
-        "child_process",
-        "electron"
-      ],
-      "classes": [],
-      "functions": [
+        "clearStoredToken",
         "fetchGitHubUser",
+        "getErrorMessage",
+        "getTestUser",
         "getToken",
         "getTokenFromGhCli",
-        "setupAuthHandlers"
+        "getTokenPath",
+        "loadStoredToken",
+        "pollForToken",
+        "setupAuthHandlers",
+        "storeToken"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946110038607,
-      "size": 3240
+      "mtime_ns": 1772848153442335721,
+      "size": 7717
     },
     "src/main/git.ts": {
       "path": "src/main/git.ts",
       "language": "typescript",
       "parser": "regex",
       "imports": [
+        "../shared/types",
         "electron",
         "fs",
         "path",
@@ -91,14 +145,17 @@
       ],
       "classes": [],
       "functions": [
+        "evictGitInstances",
         "getGit",
+        "isValidThreadId",
         "parseDiff",
-        "setupGitHandlers"
+        "setupGitHandlers",
+        "toErrorMessage"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672862604336690,
-      "size": 5535
+      "mtime_ns": 1772848153442335721,
+      "size": 7538
     },
     "src/main/main.ts": {
       "path": "src/main/main.ts",
@@ -110,17 +167,39 @@
         "./git",
         "./terminal",
         "electron",
+        "electron-updater",
         "fs",
+        "os",
         "path"
       ],
       "classes": [],
       "functions": [
-        "createWindow"
+        "createWindow",
+        "getErrorMessage",
+        "getMainWebContents"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672360840496187,
-      "size": 3430
+      "mtime_ns": 1772848153442335721,
+      "size": 6046
+    },
+    "src/main/preload.ts": {
+      "path": "src/main/preload.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../shared/types",
+        "electron"
+      ],
+      "classes": [],
+      "functions": [
+        "getListenerMap",
+        "invokeImpl"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153442335721,
+      "size": 4587
     },
     "src/main/terminal.ts": {
       "path": "src/main/terminal.ts",
@@ -133,12 +212,14 @@
       ],
       "classes": [],
       "functions": [
+        "getErrorMessage",
+        "loadPty",
         "setupTerminalHandlers"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
-      "size": 1515
+      "mtime_ns": 1772848153442335721,
+      "size": 3285
     },
     "src/renderer/App.tsx": {
       "path": "src/renderer/App.tsx",
@@ -151,7 +232,8 @@
         "./components/WelcomeScreen",
         "./components/ui/tooltip",
         "./store/appStore",
-        "react"
+        "react",
+        "zustand/react/shallow"
       ],
       "classes": [],
       "functions": [
@@ -160,8 +242,47 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672894237887067,
-      "size": 1916
+      "mtime_ns": 1772848153442335721,
+      "size": 3411
+    },
+    "src/renderer/components/DiffView.tsx": {
+      "path": "src/renderer/components/DiffView.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../shared/types",
+        "../lib/utils",
+        "./ui/button",
+        "lucide-react",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "buildExpandedFiles"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153442335721,
+      "size": 12669
+    },
+    "src/renderer/components/ErrorBoundary.tsx": {
+      "path": "src/renderer/components/ErrorBoundary.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "react"
+      ],
+      "classes": [
+        "ErrorBoundary"
+      ],
+      "functions": [],
+      "methods": [
+        "componentDidCatch",
+        "render"
+      ],
+      "calls": {},
+      "mtime_ns": 1772848153442335721,
+      "size": 1439
     },
     "src/renderer/components/LoomIcon.tsx": {
       "path": "src/renderer/components/LoomIcon.tsx",
@@ -175,7 +296,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153442335721,
       "size": 1385
     },
     "src/renderer/components/MarkdownMessage.tsx": {
@@ -192,8 +313,27 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
-      "size": 3669
+      "mtime_ns": 1772848153442335721,
+      "size": 3769
+    },
+    "src/renderer/components/ModelPicker.tsx": {
+      "path": "src/renderer/components/ModelPicker.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "../store/appStore",
+        "lucide-react",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "handler"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153443335739,
+      "size": 5024
     },
     "src/renderer/components/SettingsPanel.tsx": {
       "path": "src/renderer/components/SettingsPanel.tsx",
@@ -204,14 +344,18 @@
         "../store/appStore",
         "./ui/button",
         "lucide-react",
-        "react"
+        "react",
+        "zustand/react/shallow"
       ],
       "classes": [],
-      "functions": [],
+      "functions": [
+        "getErrorMessage",
+        "handler"
+      ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672889088795496,
-      "size": 2502
+      "mtime_ns": 1772848153443335739,
+      "size": 19093
     },
     "src/renderer/components/Sidebar.tsx": {
       "path": "src/renderer/components/Sidebar.tsx",
@@ -221,25 +365,62 @@
         "../lib/utils",
         "../store/appStore",
         "./LoomIcon",
-        "./ui/button",
-        "./ui/separator",
-        "electron",
-        "react"
+        "react",
+        "zustand/react/shallow"
       ],
       "classes": [],
       "functions": [
+        "buildDiscoveryDetails",
         "checkAuthStatus",
+        "createEmptyProjectBranchState",
+        "createEmptyProjectMcpDiagnostics",
+        "currentValue",
+        "getBranchStatusText",
+        "getDiscoveryRecoveryHint",
+        "getDiscoveryTestOverride",
+        "getErrorMessage",
+        "handleBranchChange",
+        "handleCancelLogin",
+        "handleCopyDiscoveryDetails",
         "handleLogin",
         "handleLogout",
         "handleNewThread",
         "handleOpenProject",
+        "isGitHubUser",
         "loadAgents",
-        "loadSkills"
+        "loadBranches",
+        "loadProjectMcp",
+        "loadSkills",
+        "payload",
+        "renderDiscoveryLocations",
+        "setProjectBranchState",
+        "toDiscoveryIssues",
+        "toGitBranchListResult",
+        "toGitCheckoutResult",
+        "toMentionableEntries",
+        "toProjectMcpDiscoveryResult",
+        "toProjectMcpServers"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672878506611698,
-      "size": 23221
+      "mtime_ns": 1772848153443335739,
+      "size": 68886
+    },
+    "src/renderer/components/TerminalView.tsx": {
+      "path": "src/renderer/components/TerminalView.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "initTerminal"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153443335739,
+      "size": 4199
     },
     "src/renderer/components/ThreadPanel.tsx": {
       "path": "src/renderer/components/ThreadPanel.tsx",
@@ -247,37 +428,42 @@
       "parser": "regex",
       "imports": [
         "../lib/utils",
-        "../store/appStore",
         "./LoomIcon",
         "./MarkdownMessage",
+        "./ModelPicker",
+        "./TokenCounter",
         "./ui/avatar",
-        "./ui/badge",
         "./ui/button",
-        "./ui/scroll-area",
-        "electron",
-        "react"
+        "zustand/react/shallow"
       ],
       "classes": [],
       "functions": [
         "agentStatus",
+        "cleanup",
         "flushChunks",
+        "formatAgentErrorContent",
+        "handleCancel",
         "handleKeyDown",
         "handleSend",
+        "handleTabKeyDown",
         "handler",
-        "initTerminal",
-        "levels",
-        "loadDiff",
-        "respondToPermission",
-        "respondToUserInput",
-        "scrollToBottom",
-        "statusBadgeVariant",
-        "statusIcon",
-        "toggleFile"
+        "isCurrentPayload",
+        "isPendingPermissionRequest",
+        "isPendingUserInputRequest",
+        "isPlainObject",
+        "previewThinking",
+        "processPayload",
+        "resolvedToolCallId",
+        "splitToolCalls",
+        "summarizeThinking",
+        "tabPanelFallback",
+        "toAgentStreamPayload",
+        "toTokenCount"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672885383730658,
-      "size": 39431
+      "mtime_ns": 1772848153443335739,
+      "size": 52145
     },
     "src/renderer/components/TitleBar.tsx": {
       "path": "src/renderer/components/TitleBar.tsx",
@@ -287,7 +473,6 @@
         "../store/appStore",
         "./LoomIcon",
         "./ui/button",
-        "electron",
         "lucide-react",
         "react"
       ],
@@ -297,17 +482,37 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
-      "size": 1761
+      "mtime_ns": 1772848153443335739,
+      "size": 1666
+    },
+    "src/renderer/components/TokenCounter.tsx": {
+      "path": "src/renderer/components/TokenCounter.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../lib/utils",
+        "../store/appStore",
+        "./ui/tooltip",
+        "react"
+      ],
+      "classes": [],
+      "functions": [
+        "formatCompactTokens",
+        "formatTokens"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153444335756,
+      "size": 3334
     },
     "src/renderer/components/WelcomeScreen.tsx": {
       "path": "src/renderer/components/WelcomeScreen.tsx",
       "language": "typescript",
       "parser": "regex",
       "imports": [
+        "../lib/utils",
         "../store/appStore",
         "./ui/button",
-        "electron",
         "lucide-react",
         "react"
       ],
@@ -317,8 +522,8 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672891919845843,
-      "size": 1915
+      "mtime_ns": 1772848153444335756,
+      "size": 2198
     },
     "src/renderer/components/ui/avatar.tsx": {
       "path": "src/renderer/components/ui/avatar.tsx",
@@ -333,7 +538,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 1419
     },
     "src/renderer/components/ui/badge.tsx": {
@@ -351,7 +556,7 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 1046
     },
     "src/renderer/components/ui/button.tsx": {
@@ -368,7 +573,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 1770
     },
     "src/renderer/components/ui/scroll-area.tsx": {
@@ -384,7 +589,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 1619
     },
     "src/renderer/components/ui/separator.tsx": {
@@ -400,7 +605,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 726
     },
     "src/renderer/components/ui/tabs.tsx": {
@@ -416,7 +621,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 1931
     },
     "src/renderer/components/ui/tooltip.tsx": {
@@ -432,7 +637,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946111038624,
+      "mtime_ns": 1772848153444335756,
       "size": 888
     },
     "src/renderer/index.tsx": {
@@ -441,6 +646,7 @@
       "parser": "regex",
       "imports": [
         "./App",
+        "./components/ErrorBoundary",
         "./styles/app.css",
         "react",
         "react-dom/client"
@@ -449,8 +655,8 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946112038641,
-      "size": 237
+      "mtime_ns": 1772848153444335756,
+      "size": 353
     },
     "src/renderer/lib/utils.ts": {
       "path": "src/renderer/lib/utils.ts",
@@ -462,28 +668,48 @@
       ],
       "classes": [],
       "functions": [
-        "cn"
+        "cn",
+        "getElectronAPI",
+        "selectProjectFromDialog"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946112038641,
-      "size": 169
+      "mtime_ns": 1772848153444335756,
+      "size": 796
     },
     "src/renderer/store/appStore.ts": {
       "path": "src/renderer/store/appStore.ts",
       "language": "typescript",
       "parser": "regex",
       "imports": [
-        "electron",
         "zustand",
         "zustand/middleware"
       ],
       "classes": [],
+      "functions": [
+        "emptyThreadTokenUsage",
+        "findLatestThreadForProject",
+        "findThreadById",
+        "pickFallbackThread",
+        "updateMessageList",
+        "updateThreadList"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153444335756,
+      "size": 18349
+    },
+    "src/shared/electron.d.ts": {
+      "path": "src/shared/electron.d.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [],
+      "classes": [],
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672360841496204,
-      "size": 11134
+      "mtime_ns": 1772848153444335756,
+      "size": 811
     },
     "src/shared/types.ts": {
       "path": "src/shared/types.ts",
@@ -494,8 +720,8 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946112038641,
-      "size": 2009
+      "mtime_ns": 1772848153444335756,
+      "size": 3097
     },
     "tailwind.config.js": {
       "path": "tailwind.config.js",
@@ -506,8 +732,85 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946112038641,
+      "mtime_ns": 1772848153444335756,
       "size": 1757
+    },
+    "tests/e2e/app-flow.spec.ts": {
+      "path": "tests/e2e/app-flow.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test"
+      ],
+      "classes": [],
+      "functions": [
+        "store"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 1528
+    },
+    "tests/e2e/cloudbuild-mcp.spec.ts": {
+      "path": "tests/e2e/cloudbuild-mcp.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/electronApp",
+        "@playwright/test",
+        "fs",
+        "os",
+        "path"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 1578
+    },
+    "tests/e2e/diff-view-scroll.spec.ts": {
+      "path": "tests/e2e/diff-view-scroll.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test",
+        "fs",
+        "path"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 2174
+    },
+    "tests/e2e/thread-stream-isolation.spec.ts": {
+      "path": "tests/e2e/thread-stream-isolation.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test"
+      ],
+      "classes": [],
+      "functions": [
+        "createThread",
+        "launchFixtureApp",
+        "sendPrompt",
+        "setActiveThread",
+        "store",
+        "waitForThreadCompletion"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 7928
     },
     "tests/unit/main/agent.test.ts": {
       "path": "tests/unit/main/agent.test.ts",
@@ -524,8 +827,23 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772673060486801979,
-      "size": 4746
+      "mtime_ns": 1772848153448335827,
+      "size": 25969
+    },
+    "tests/unit/main/auth.test.ts": {
+      "path": "tests/unit/main/auth.test.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../utils/mockIpcMain",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 5490
     },
     "tests/unit/main/git.test.ts": {
       "path": "tests/unit/main/git.test.ts",
@@ -541,8 +859,144 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772673044309517863,
-      "size": 3141
+      "mtime_ns": 1772848153448335827,
+      "size": 4126
+    },
+    "tests/unit/main/main.test.ts": {
+      "path": "tests/unit/main/main.test.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../utils/mockIpcMain",
+        "vitest"
+      ],
+      "classes": [
+        "MockBrowserWindow"
+      ],
+      "functions": [
+        "setupMainModule"
+      ],
+      "methods": [
+        "constructor"
+      ],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 4003
+    },
+    "tests/unit/main/terminal.test.ts": {
+      "path": "tests/unit/main/terminal.test.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../utils/mockIpcMain",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "createFakeTerm",
+        "invokeCreate",
+        "setupWithTerm"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153448335827,
+      "size": 4862
+    },
+    "tests/unit/renderer/app-store.test.ts": {
+      "path": "tests/unit/renderer/app-store.test.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/store/appStore",
+        "../../utils/mockElectronRenderer",
+        "../../utils/resetAppStore",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 14904
+    },
+    "tests/unit/renderer/app.test.tsx": {
+      "path": "tests/unit/renderer/app.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/App",
+        "../../../src/renderer/store/appStore",
+        "../../utils/mockElectronRenderer",
+        "../../utils/resetAppStore",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "renderApp"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 2764
+    },
+    "tests/unit/renderer/diff-view.test.tsx": {
+      "path": "tests/unit/renderer/diff-view.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/components/DiffView",
+        "../../../src/shared/types",
+        "../../utils/mockElectronRenderer",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "getFileToggle"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 5842
+    },
+    "tests/unit/renderer/markdown-message.test.tsx": {
+      "path": "tests/unit/renderer/markdown-message.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/components/MarkdownMessage",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 1423
+    },
+    "tests/unit/renderer/settings-panel.test.tsx": {
+      "path": "tests/unit/renderer/settings-panel.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/components/SettingsPanel",
+        "../../../src/renderer/store/appStore",
+        "../../utils/mockElectronRenderer",
+        "../../utils/resetAppStore",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "clickAndFlush",
+        "renderOpenSettings"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 9164
     },
     "tests/unit/renderer/sidebar.test.tsx": {
       "path": "tests/unit/renderer/sidebar.test.tsx",
@@ -557,11 +1011,39 @@
         "vitest"
       ],
       "classes": [],
-      "functions": [],
+      "functions": [
+        "changeAndFlush",
+        "clickAndFlush",
+        "nextCount",
+        "renderSidebar",
+        "setProject"
+      ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772673087957286338,
-      "size": 2491
+      "mtime_ns": 1772848153449335845,
+      "size": 17964
+    },
+    "tests/unit/renderer/thread-panel.test.tsx": {
+      "path": "tests/unit/renderer/thread-panel.test.tsx",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../../../src/renderer/components/ThreadPanel",
+        "../../../src/renderer/components/ui/tooltip",
+        "../../../src/renderer/store/appStore",
+        "../../utils/mockElectronRenderer",
+        "../../utils/resetAppStore",
+        "@testing-library/react",
+        "vitest"
+      ],
+      "classes": [],
+      "functions": [
+        "renderThreadPanel"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 17091
     },
     "tests/unit/renderer/welcome-screen.test.tsx": {
       "path": "tests/unit/renderer/welcome-screen.test.tsx",
@@ -579,8 +1061,8 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772673079529137718,
-      "size": 1318
+      "mtime_ns": 1772848153449335845,
+      "size": 1456
     },
     "tests/unit/setup.ts": {
       "path": "tests/unit/setup.ts",
@@ -588,14 +1070,15 @@
       "parser": "regex",
       "imports": [
         "@testing-library/jest-dom/vitest",
+        "@testing-library/react",
         "vitest"
       ],
       "classes": [],
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672953562920317,
-      "size": 205
+      "mtime_ns": 1772848153449335845,
+      "size": 315
     },
     "tests/utils/createGitFixtureRepo.ts": {
       "path": "tests/utils/createGitFixtureRepo.ts",
@@ -609,12 +1092,14 @@
       ],
       "classes": [],
       "functions": [
-        "createGitFixtureRepo"
+        "createGitFixtureRepo",
+        "runGit",
+        "toText"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672991550590491,
-      "size": 1139
+      "mtime_ns": 1772848153449335845,
+      "size": 2422
     },
     "tests/utils/electronApp.ts": {
       "path": "tests/utils/electronApp.ts",
@@ -633,8 +1118,8 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672999044722305,
-      "size": 1409
+      "mtime_ns": 1772848153449335845,
+      "size": 1942
     },
     "tests/utils/mockElectronRenderer.ts": {
       "path": "tests/utils/mockElectronRenderer.ts",
@@ -646,13 +1131,12 @@
       "classes": [],
       "functions": [
         "createMockIpcRenderer",
-        "installElectronMock",
-        "originalRequire"
+        "installElectronMock"
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672969646202920,
-      "size": 2409
+      "mtime_ns": 1772848153449335845,
+      "size": 2750
     },
     "tests/utils/mockIpcMain.ts": {
       "path": "tests/utils/mockIpcMain.ts",
@@ -671,8 +1155,8 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672976908333137,
-      "size": 2104
+      "mtime_ns": 1772848153449335845,
+      "size": 2231
     },
     "tests/utils/mockLlm.ts": {
       "path": "tests/utils/mockLlm.ts",
@@ -685,7 +1169,7 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672981274410093,
+      "mtime_ns": 1772848153449335845,
       "size": 376
     },
     "tests/utils/mockMcpServer.ts": {
@@ -699,7 +1183,7 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672986381499876,
+      "mtime_ns": 1772848153449335845,
       "size": 900
     },
     "tests/utils/resetAppStore.ts": {
@@ -715,8 +1199,95 @@
       ],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672960483040625,
-      "size": 667
+      "mtime_ns": 1772848153449335845,
+      "size": 728
+    },
+    "tests/visual/settings-diff.spec.ts": {
+      "path": "tests/visual/settings-diff.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test"
+      ],
+      "classes": [],
+      "functions": [
+        "api",
+        "installInvokeOverrides",
+        "overriddenInvoke",
+        "override",
+        "store"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 6278
+    },
+    "tests/visual/sidebar-discovery.spec.ts": {
+      "path": "tests/visual/sidebar-discovery.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test",
+        "fs",
+        "path"
+      ],
+      "classes": [],
+      "functions": [
+        "closeSidebarApp",
+        "ensureSectionOpen",
+        "launchSidebarApp",
+        "openDiscoverySections",
+        "prepareMcpRecoveryRepo",
+        "preparePopulatedDiscoveryRepo",
+        "setDiscoveryTestState",
+        "store"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 8251
+    },
+    "tests/visual/thread-panel-chat-flow.spec.ts": {
+      "path": "tests/visual/thread-panel-chat-flow.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test"
+      ],
+      "classes": [],
+      "functions": [
+        "store"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153449335845,
+      "size": 4082
+    },
+    "tests/visual/ui-regression.spec.ts": {
+      "path": "tests/visual/ui-regression.spec.ts",
+      "language": "typescript",
+      "parser": "regex",
+      "imports": [
+        "../utils/createGitFixtureRepo",
+        "../utils/electronApp",
+        "@playwright/test",
+        "fs",
+        "path"
+      ],
+      "classes": [],
+      "functions": [
+        "store"
+      ],
+      "methods": [],
+      "calls": {},
+      "mtime_ns": 1772848153450335863,
+      "size": 2759
     },
     "vitest.config.ts": {
       "path": "vitest.config.ts",
@@ -729,7 +1300,7 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772672904005060575,
+      "mtime_ns": 1772848153450335863,
       "size": 528
     },
     "webpack.main.config.js": {
@@ -743,24 +1314,24 @@
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946112038641,
-      "size": 545
+      "mtime_ns": 1772848153450335863,
+      "size": 1290
     },
     "webpack.renderer.config.js": {
       "path": "webpack.renderer.config.js",
       "language": "javascript",
       "parser": "regex",
       "imports": [
+        "copy-webpack-plugin",
         "html-webpack-plugin",
-        "path",
-        "webpack"
+        "path"
       ],
       "classes": [],
       "functions": [],
       "methods": [],
       "calls": {},
-      "mtime_ns": 1772666946112038641,
-      "size": 1091
+      "mtime_ns": 1772848153450335863,
+      "size": 1224
     }
   }
 }

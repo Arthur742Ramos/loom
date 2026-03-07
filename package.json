@@ -104,6 +104,31 @@
       ],
       "icon": "src/renderer/icon.png"
     },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "icon": "src/renderer/icon.png",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "src/renderer/icon.png",
+      "category": "Development"
+    },
     "nsis": {
       "oneClick": true,
       "perMachine": false,

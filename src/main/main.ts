@@ -70,29 +70,30 @@ function createWindow() {
   // Remove the default menu bar (File, Edit, View, etc.)
   Menu.setApplicationMenu(null);
 
-  // Expose screenshot helper via IPC for testing
-  ipcMain.removeHandler('test:screenshot');
-  ipcMain.handle('test:screenshot', async (_event, name: string) => {
-    try {
+  // Expose test helpers only in test mode to prevent arbitrary code execution
+  if (process.env.LOOM_TEST_MODE === '1') {
+    ipcMain.removeHandler('test:screenshot');
+    ipcMain.handle('test:screenshot', async (_event, name: string) => {
+      try {
+        const webContents = getMainWebContents();
+        if (!webContents) return { ok: false, error: 'Main window unavailable' };
+        const image = await webContents.capturePage();
+        const dir = path.join(__dirname, '..', '..', 'test-screenshots');
+        if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, `${name}.png`), image.toPNG());
+        return { ok: true, path: path.join(dir, `${name}.png`) };
+      } catch (error: unknown) {
+        return { ok: false, error: getErrorMessage(error) };
+      }
+    });
+
+    ipcMain.removeHandler('test:exec');
+    ipcMain.handle('test:exec', async (_event, js: string) => {
       const webContents = getMainWebContents();
       if (!webContents) return { ok: false, error: 'Main window unavailable' };
-      const image = await webContents.capturePage();
-      const dir = path.join(__dirname, '..', '..', 'test-screenshots');
-       if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-       fs.writeFileSync(path.join(dir, `${name}.png`), image.toPNG());
-       return { ok: true, path: path.join(dir, `${name}.png`) };
-     } catch (error: unknown) {
-       return { ok: false, error: getErrorMessage(error) };
-     }
-   });
-
-  // Expose executeJavaScript helper
-  ipcMain.removeHandler('test:exec');
-  ipcMain.handle('test:exec', async (_event, js: string) => {
-    const webContents = getMainWebContents();
-    if (!webContents) return { ok: false, error: 'Main window unavailable' };
-    return webContents.executeJavaScript(js);
-  });
+      return webContents.executeJavaScript(js);
+    });
+  }
 
   mainWindow.on('closed', () => {
     mainWindow = null;
@@ -119,7 +120,8 @@ app.whenReady().then(() => {
 
   // Directory picker
   ipcMain.handle('project:select-dir', async () => {
-    const result = await dialog.showOpenDialog(mainWindow!, {
+    if (!mainWindow || mainWindow.isDestroyed()) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory'],
       title: 'Select Project Folder',
     });

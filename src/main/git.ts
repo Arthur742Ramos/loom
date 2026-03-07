@@ -178,6 +178,15 @@ export function setupGitHandlers() {
 
   ipcMain.handle('git:stage', async (_event, projectPath: string, files: string[]) => {
     try {
+      if (!Array.isArray(files) || files.length === 0) {
+        return { error: 'No files specified for staging' };
+      }
+      // Validate file paths don't escape the project directory
+      for (const file of files) {
+        if (typeof file !== 'string' || file.includes('\0')) {
+          return { error: 'Invalid file path' };
+        }
+      }
       const git = getGit(projectPath);
       await git.add(files);
       return { success: true };
@@ -188,8 +197,11 @@ export function setupGitHandlers() {
 
   ipcMain.handle('git:commit', async (_event, projectPath: string, message: string) => {
     try {
+      if (typeof message !== 'string' || !message.trim()) {
+        return { error: 'Commit message is required' };
+      }
       const git = getGit(projectPath);
-      const result = await git.commit(message);
+      const result = await git.commit(message.trim());
       return { hash: result.commit, summary: result.summary };
     } catch (error: unknown) {
       return { error: toErrorMessage(error) };

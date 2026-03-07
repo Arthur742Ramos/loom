@@ -16,7 +16,7 @@ export const MarkdownMessage: React.FC<MarkdownMessageProps> = React.memo(({ con
         remarkPlugins={[remarkGfm]}
         components={{
         // Code blocks & inline code
-        code({ node, className: codeClass, children, ...props }) {
+        code({ className: codeClass, children, ...props }) {
           const isInline = !codeClass;
           if (isInline) {
             return (
@@ -92,3 +92,5 @@ export const MarkdownMessage: React.FC<MarkdownMessageProps> = React.memo(({ con
     </div>
   );
 });
+
+MarkdownMessage.displayName = 'MarkdownMessage';

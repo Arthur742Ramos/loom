@@ -22,3 +22,9 @@
 - [2026-03-05T01:33:43+00:00] [preference] [sdk] In `agent.ts`, prefer SDK-provided tool IDs when available
 - [2026-03-05T01:33:43+00:00] [preference] [sdk] Whether thinking/tool panels are always expanded vs collapsible in completed messages
 - [2026-03-05T01:38:07+00:00] [preference] [sdk] Renderer uses direct `window.require('electron')` checks (no preload/contextBridge abstraction), so tests must mock `window.require`.
+- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** slightly larger IPC payloads for strong isolation guarantees
+- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** less transient UI state, more explicit message UI components
+- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Decision:** scripted LOOM test mode for E2E determinism
+- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** extra test harness complexity for high-confidence concurrency coverage
+- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Decision:** include hook-order hardening in same fix scope
+- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** slightly broader `ThreadPanel` change for major stability gain

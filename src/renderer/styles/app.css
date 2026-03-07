@@ -60,7 +60,7 @@
 ::-webkit-scrollbar { width: 6px; height: 6px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { @apply bg-border rounded-full; }
-::-webkit-scrollbar-thumb:hover { background: hsl(0 0% 78%); }
+::-webkit-scrollbar-thumb:hover { background: hsl(var(--muted-foreground) / 0.4); }
 
 @media (prefers-reduced-motion: no-preference) {
   button,
@@ -206,3 +206,12 @@ textarea:focus-visible {
 /* ── Title bar drag region ── */
 .drag-region { -webkit-app-region: drag; }
 .no-drag { -webkit-app-region: no-drag; }
+
+/* ── Reduced motion ── */
+@media (prefers-reduced-motion: reduce) {
+  .typing-dot,
+  .thinking-live-dot,
+  .token-counter-value-updated {
+    animation: none !important;
+  }
+}
