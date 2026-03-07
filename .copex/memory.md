@@ -22,9 +22,28 @@
 - [2026-03-05T01:33:43+00:00] [preference] [sdk] In `agent.ts`, prefer SDK-provided tool IDs when available
 - [2026-03-05T01:33:43+00:00] [preference] [sdk] Whether thinking/tool panels are always expanded vs collapsible in completed messages
 - [2026-03-05T01:38:07+00:00] [preference] [sdk] Renderer uses direct `window.require('electron')` checks (no preload/contextBridge abstraction), so tests must mock `window.require`.
-- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** slightly larger IPC payloads for strong isolation guarantees
-- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** less transient UI state, more explicit message UI components
-- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Decision:** scripted LOOM test mode for E2E determinism
-- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** extra test harness complexity for high-confidence concurrency coverage
-- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Decision:** include hook-order hardening in same fix scope
-- [2026-03-07T01:57:00+00:00] [decision] [sdk] **Trade-off:** slightly broader `ThreadPanel` change for major stability gain
+- [2026-03-05T04:35:07+00:00] [decision] [sdk] **Trade-off:** slightly larger IPC payloads for strong isolation guarantees
+- [2026-03-05T04:35:07+00:00] [decision] [sdk] **Trade-off:** less transient UI state, more explicit message UI components
+- [2026-03-05T04:35:07+00:00] [decision] [sdk] **Decision:** scripted LOOM test mode for E2E determinism
+- [2026-03-05T04:35:07+00:00] [decision] [sdk] **Trade-off:** extra test harness complexity for high-confidence concurrency coverage
+- [2026-03-05T04:35:07+00:00] [decision] [sdk] **Decision:** include hook-order hardening in same fix scope
+- [2026-03-05T04:35:07+00:00] [decision] [sdk] **Trade-off:** slightly broader `ThreadPanel` change for major stability gain
+- [2026-03-05T13:28:30+00:00] [decision] [sdk] **Decision:** track tokens from `assistant.usage` events in stream path
+- [2026-03-05T13:28:30+00:00] [decision] [sdk] **Trade-off:** strongest fidelity to Copilot runtime events, but depends on provider emitting usage consistently
+- [2026-03-05T13:28:30+00:00] [decision] [sdk] **Decision:** place TokenCounter in ThreadPanel header
+- [2026-03-05T13:28:30+00:00] [decision] [sdk] **Trade-off:** best visibility with low clutter, but slightly denser header controls
+- [2026-03-05T13:28:30+00:00] [decision] [sdk] **Decision:** cumulative per-thread token accounting by default
+- [2026-03-05T13:56:47+00:00] [decision] [sdk] **Trade-off:** useful longitudinal signal, less immediate per-turn granularity unless added later
+- [2026-03-05T13:56:47+00:00] [decision] [sdk] **Decision:** CSS-based subtle animations (no new deps)
+- [2026-03-05T13:56:47+00:00] [decision] [sdk] **Trade-off:** lightweight and consistent with current stack, less sophisticated than numeric tween libs
+- [2026-03-05T13:56:47+00:00] [preference] [sdk] **Decision**: fix only reproducible CI breakage first (e2e store exposure), avoid speculative build/main.ts edits.
+- [2026-03-05T13:56:47+00:00] [decision] [sdk] **Trade-off**: may diverge from original task assumptions, but keeps changes minimal and evidence-based.
+- [2026-03-05T13:56:47+00:00] [decision] [sdk] **Decision**: gate `__appStore` exposure to test mode (not global production).
+- [2026-03-05T14:31:16+00:00] [preference] [sdk] **Prefer surgical refactors over architectural rewrites** to keep each commit independently reviewable and reversible.
+- [2026-03-05T14:31:16+00:00] [preference] [sdk] **Prefer minimal main-process edits + targeted tests** over broader renderer/protocol changes.
+- [2026-03-05T14:31:16+00:00] [preference] [sdk] Accepted no-code-change outcome to avoid unnecessary churn in stable stream/session paths.
+- [2026-03-05T14:31:16+00:00] [preference] [sdk] **Decision:** keep polish surgical and behavior-preserving; avoid architecture rewrites.
+- [2026-03-05T14:31:16+00:00] [decision] [sdk] **Trade-off:** less dramatic cleanup, lower regression risk.
+- [2026-03-05T14:31:16+00:00] [decision] [sdk] **Decision:** no new lint tool introduction in this pass.
+- [2026-03-05T14:31:16+00:00] [decision] [sdk] **Trade-off:** faster/risk-limited delivery, no new automated style gate.
+- [2026-03-05T14:31:16+00:00] [decision] [sdk] **Decision:** prioritize typed boundaries and error clarity in critical paths first (`agent.ts`, `ThreadPanel.tsx`).

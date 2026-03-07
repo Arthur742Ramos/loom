@@ -8,7 +8,6 @@ export interface MockIpcRenderer {
   on: ReturnType<typeof vi.fn>;
   once: ReturnType<typeof vi.fn>;
   sendReply: ReturnType<typeof vi.fn>;
-  removeListener: ReturnType<typeof vi.fn>;
   emit: (channel: string, ...args: any[]) => void;
   reset: () => void;
 }
@@ -40,10 +39,6 @@ export function createMockIpcRenderer(): MockIpcRenderer {
         }
       }
     }),
-    removeListener: vi.fn((channel: string, listener: Listener) => {
-      listeners.get(channel)?.delete(listener);
-      onceListeners.get(channel)?.delete(listener);
-    }),
     emit: (channel: string, ...args: any[]) => {
       for (const listener of listeners.get(channel) ?? []) {
         listener(...args);
@@ -64,7 +59,6 @@ export function createMockIpcRenderer(): MockIpcRenderer {
       ipcRenderer.sendReply.mockReset();
       ipcRenderer.on.mockClear();
       ipcRenderer.once.mockClear();
-      ipcRenderer.removeListener.mockClear();
     },
   };
 
