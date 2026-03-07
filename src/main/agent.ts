@@ -133,6 +133,7 @@ interface AgentRequest {
 
 type StreamPayload = { type: string } & Record<string, unknown>;
 const STREAM_BATCH_WINDOW_MS = 16;
+const MAX_BUFFERED_STREAM_EVENTS = 64;
 const BATCHABLE_STREAM_EVENT_TYPES = new Set(['chunk', 'thinking']);
 
 const getErrorMessage = (error: unknown): string =>
@@ -154,6 +155,28 @@ const asOptionalPermissionMode = (value: unknown): AgentRequest['permissionMode'
     ? value
     : undefined;
 
+const pathExistsAsync = async (targetPath: string): Promise<boolean> => {
+  try {
+    await fs.promises.access(targetPath, fs.constants.F_OK);
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+const directoryExistsAsync = async (directory: string): Promise<boolean> => {
+  try {
+    return (await fs.promises.stat(directory)).isDirectory();
+  } catch {
+    return false;
+  }
+};
+
+const describeJsonParseError = (error: unknown): string =>
+  error instanceof Error && error.message
+    ? ` ${error.message}`
+    : '';
+
 function resolveProjectDirectory(projectPath: unknown): string | null {
   if (!isNonEmptyString(projectPath)) return null;
   const candidate = projectPath.trim();
@@ -161,6 +184,18 @@ function resolveProjectDirectory(projectPath: unknown): string | null {
   try {
     const resolved = fs.realpathSync(candidate);
     return fs.statSync(resolved).isDirectory() ? resolved : null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveProjectDirectoryAsync(projectPath: unknown): Promise<string | null> {
+  if (!isNonEmptyString(projectPath)) return null;
+  const candidate = projectPath.trim();
+  if (!path.isAbsolute(candidate) || candidate.includes('\0')) return null;
+  try {
+    const resolved = await fs.promises.realpath(candidate);
+    return (await fs.promises.stat(resolved)).isDirectory() ? resolved : null;
   } catch {
     return null;
   }
@@ -174,9 +209,25 @@ const readUtf8File = (filePath: string): string | null => {
   }
 };
 
+const readUtf8FileAsync = async (filePath: string): Promise<string | null> => {
+  try {
+    return await fs.promises.readFile(filePath, 'utf-8');
+  } catch {
+    return null;
+  }
+};
+
 const listMarkdownFiles = (directory: string): string[] => {
   try {
     return fs.readdirSync(directory).filter((file) => file.endsWith('.md'));
+  } catch {
+    return [];
+  }
+};
+
+const listMarkdownFilesAsync = async (directory: string): Promise<string[]> => {
+  try {
+    return (await fs.promises.readdir(directory)).filter((file) => file.endsWith('.md'));
   } catch {
     return [];
   }
@@ -574,6 +625,9 @@ function createStreamDispatcher(sender: Electron.WebContents, request: AgentRequ
   };
 
   const enqueue = (payload: StreamPayload) => {
+    if (buffered.length >= MAX_BUFFERED_STREAM_EVENTS) {
+      flush();
+    }
     buffered.push(payload);
     if (flushTimer) return;
     flushTimer = setTimeout(() => {
@@ -628,7 +682,8 @@ function getScriptedTestEvents(request: AgentRequest): ScriptedTestEvent[] | nul
 
     const keyedEvents = toScriptedEventList(parsed[request.message]);
     if (keyedEvents) return keyedEvents;
-  } catch {
+  } catch (error: unknown) {
+    console.warn(`Failed to parse scripted test agent events.${describeJsonParseError(error)}`);
     return null;
   }
   return null;
@@ -760,8 +815,8 @@ async function resetClient(): Promise<void> {
       const previousClient = await previousClientPromise;
       // forceStop avoids writing teardown messages to a dead stream.
       await (previousClient.forceStop ?? previousClient.stop)?.call(previousClient);
-    } catch {
-      // Ignore teardown errors while resetting.
+    } catch (error: unknown) {
+      console.warn(`Failed to reset Copilot client cleanly: ${getErrorMessage(error)}`);
     }
   }
 }
@@ -797,6 +852,28 @@ export function loadAgentsFromProject(cwd?: string): ProjectAgentConfig[] {
       prompt: content,
     }];
   });
+}
+
+async function loadAgentsFromProjectAsync(cwd?: string): Promise<ProjectAgentConfig[]> {
+  const projectRoot = await resolveProjectDirectoryAsync(cwd);
+  if (!projectRoot) return [];
+  const agentDir = path.join(projectRoot, '.github', 'agents');
+  if (!(await directoryExistsAsync(agentDir))) return [];
+  const files = await listMarkdownFilesAsync(agentDir);
+  const agents = await Promise.all(files.map(async (file) => {
+    const filePath = path.join(agentDir, file);
+    const content = await readUtf8FileAsync(filePath);
+    if (content === null) return null;
+    const name = file.replace(/\.md$/, '').replace(/\.agent$/, '');
+    const firstLine = getFirstMeaningfulLine(content) || name;
+    return {
+      name,
+      displayName: firstLine.substring(0, 60),
+      description: firstLine.substring(0, 100),
+      prompt: content,
+    };
+  }));
+  return agents.filter((agent): agent is ProjectAgentConfig => agent !== null);
 }
 
 /** Load and normalize project MCP server definitions from supported config files. */
@@ -839,10 +916,10 @@ export function inspectProjectMcp(cwd?: string): ProjectMcpDiscoveryResult {
       let raw: unknown;
       try {
         raw = JSON.parse(content);
-      } catch {
+      } catch (error: unknown) {
         issues.push({
           severity: 'error',
-          message: `Skipped ${displayPath} because it contains invalid JSON.`,
+          message: `Skipped ${displayPath} because it contains invalid JSON.${describeJsonParseError(error)}`,
         });
         continue;
       }
@@ -876,7 +953,12 @@ export function inspectProjectMcp(cwd?: string): ProjectMcpDiscoveryResult {
         sourceFile: displayPath,
         issues,
       };
-    } catch { /* skip invalid files */ }
+    } catch (error: unknown) {
+      issues.push({
+        severity: 'error',
+        message: `Couldn't inspect ${displayPath}: ${getErrorMessage(error)}`,
+      });
+    }
   }
 
   return {
@@ -890,6 +972,98 @@ export function inspectProjectMcp(cwd?: string): ProjectMcpDiscoveryResult {
 /** Load and normalize project MCP server definitions from supported config files. */
 export function loadMcpFromProject(cwd?: string): Record<string, NormalizedMcpServerConfig> {
   return inspectProjectMcp(cwd).servers;
+}
+
+async function inspectProjectMcpAsync(cwd?: string): Promise<ProjectMcpDiscoveryResult> {
+  const projectRoot = await resolveProjectDirectoryAsync(cwd);
+  if (!projectRoot) {
+    return {
+      servers: {},
+      searchedFiles: [],
+      sourceFile: null,
+      issues: [],
+    };
+  }
+  const candidates = [
+    path.join(projectRoot, '.vscode', 'mcp.json'),
+    path.join(projectRoot, '.github', 'copilot', 'mcp.json'),
+  ];
+  const searchedFiles = candidates.map((file) => toProjectRelativePath(projectRoot, file));
+  const issues: DiscoveryIssue[] = [];
+
+  for (let index = 0; index < candidates.length; index += 1) {
+    const file = candidates[index];
+    const displayPath = searchedFiles[index];
+
+    try {
+      if (!(await pathExistsAsync(file))) continue;
+      const content = await readUtf8FileAsync(file);
+      if (content === null) {
+        issues.push({
+          severity: 'error',
+          message: `Couldn't read ${displayPath}.`,
+        });
+        continue;
+      }
+
+      let raw: unknown;
+      try {
+        raw = JSON.parse(content);
+      } catch (error: unknown) {
+        issues.push({
+          severity: 'error',
+          message: `Skipped ${displayPath} because it contains invalid JSON.${describeJsonParseError(error)}`,
+        });
+        continue;
+      }
+
+      const serversCandidate = isPlainObject(raw) && isPlainObject(raw.servers) ? raw.servers : raw;
+      if (!isPlainObject(serversCandidate)) {
+        issues.push({
+          severity: 'warning',
+          message: `Skipped ${displayPath} because it does not define an object of MCP servers.`,
+        });
+        continue;
+      }
+
+      const result: Record<string, NormalizedMcpServerConfig> = {};
+      for (const [name, cfg] of Object.entries(serversCandidate)) {
+        const normalized = normalizeMcpServerConfig(cfg);
+        if (!normalized) continue;
+        result[name] = normalized;
+      }
+      const invalidEntryCount = Object.keys(serversCandidate).length - Object.keys(result).length;
+      if (invalidEntryCount > 0) {
+        issues.push({
+          severity: Object.keys(result).length > 0 ? 'warning' : 'error',
+          message: `Skipped ${invalidEntryCount} invalid MCP server entr${invalidEntryCount === 1 ? 'y' : 'ies'} in ${displayPath}.`,
+        });
+      }
+
+      return {
+        servers: result,
+        searchedFiles,
+        sourceFile: displayPath,
+        issues,
+      };
+    } catch (error: unknown) {
+      issues.push({
+        severity: 'error',
+        message: `Couldn't inspect ${displayPath}: ${getErrorMessage(error)}`,
+      });
+    }
+  }
+
+  return {
+    servers: {},
+    searchedFiles,
+    sourceFile: null,
+    issues,
+  };
+}
+
+async function loadMcpFromProjectAsync(cwd?: string): Promise<Record<string, NormalizedMcpServerConfig>> {
+  return (await inspectProjectMcpAsync(cwd)).servers;
 }
 
 /** Return all existing skill directories that should be passed to the SDK session config. */
@@ -909,6 +1083,26 @@ export function getProjectSkillDirectories(cwd?: string): string[] {
     } catch {
       return false;
     }
+  });
+}
+
+async function getProjectSkillDirectoriesAsync(cwd?: string): Promise<string[]> {
+  const projectRoot = await resolveProjectDirectoryAsync(cwd);
+  if (!projectRoot) return [];
+  const candidates = [
+    path.join(projectRoot, '.github', 'copilot', 'skills'),
+    path.join(projectRoot, '.copilot', 'skills'),
+  ];
+  const seen = new Set<string>();
+  const existingDirectories = await Promise.all(candidates.map(async (dir) => ({
+    dir,
+    isDirectory: await directoryExistsAsync(dir),
+  })));
+
+  return existingDirectories.flatMap(({ dir, isDirectory }) => {
+    if (seen.has(dir)) return [];
+    seen.add(dir);
+    return isDirectory ? [dir] : [];
   });
 }
 
@@ -968,9 +1162,11 @@ async function getOrCreateSession(
     );
   };
 
-  const projectAgents = loadAgentsFromProject(request.context?.cwd);
-  const projectMcp = loadMcpFromProject(request.context?.cwd);
-  const projectSkillDirectories = getProjectSkillDirectories(request.context?.cwd);
+  const [projectAgents, projectMcp, projectSkillDirectories] = await Promise.all([
+    loadAgentsFromProjectAsync(request.context?.cwd),
+    loadMcpFromProjectAsync(request.context?.cwd),
+    getProjectSkillDirectoriesAsync(request.context?.cwd),
+  ]);
   const baseConfig = {
     model: request.model,
     reasoningEffort: request.reasoningEffort,
@@ -1207,7 +1403,9 @@ export function setupAgentHandlers() {
         if (unsubscribe) {
           try {
             unsubscribe();
-          } catch {}
+          } catch (error: unknown) {
+            console.warn(`Failed to unsubscribe from Copilot session events: ${getErrorMessage(error)}`);
+          }
         }
         inFlightSessions.delete(request.threadId);
       }
@@ -1256,8 +1454,8 @@ export function setupAgentHandlers() {
     try {
       canceledThreads.add(threadId);
       await session.abort();
-    } catch {
-      // Ignore abort errors.
+    } catch (error: unknown) {
+      console.warn(`Failed to cancel agent session for ${threadId}: ${getErrorMessage(error)}`);
     } finally {
       inFlightSessions.delete(threadId);
     }
@@ -1265,21 +1463,21 @@ export function setupAgentHandlers() {
 
   // List skill files from the project.
   ipcMain.handle('agent:list-skills', async (_event, projectPath: string) => {
-    const projectRoot = resolveProjectDirectory(projectPath);
+    const projectRoot = await resolveProjectDirectoryAsync(projectPath);
     if (!projectRoot) return [];
     const results: { name: string; path: string; description: string }[] = [];
 
     // copilot-instructions.md
     const instructionsPath = path.join(projectRoot, '.github', 'copilot-instructions.md');
-    if (fs.existsSync(instructionsPath)) {
+    if (await pathExistsAsync(instructionsPath)) {
       results.push({ name: 'copilot-instructions', path: instructionsPath, description: 'Project-level instructions' });
     }
 
     // Skill directories
-    for (const dir of getProjectSkillDirectories(projectRoot)) {
-      for (const file of listMarkdownFiles(dir)) {
+    for (const dir of await getProjectSkillDirectoriesAsync(projectRoot)) {
+      for (const file of await listMarkdownFilesAsync(dir)) {
         const filePath = path.join(dir, file);
-        const content = readUtf8File(filePath);
+        const content = await readUtf8FileAsync(filePath);
         if (content === null) continue;
         const firstLine = getFirstMeaningfulLine(content);
         results.push({ name: file.replace(/\.md$/, ''), path: filePath, description: firstLine.substring(0, 100) });
@@ -1290,14 +1488,14 @@ export function setupAgentHandlers() {
 
   // List custom agents from the project.
   ipcMain.handle('agent:list-agents', async (_event, projectPath: string) => {
-    const projectRoot = resolveProjectDirectory(projectPath);
+    const projectRoot = await resolveProjectDirectoryAsync(projectPath);
     if (!projectRoot) return [];
     const results: { name: string; path: string; description: string }[] = [];
     const agentDir = path.join(projectRoot, '.github', 'agents');
-    if (!fs.existsSync(agentDir)) return results;
-    for (const file of listMarkdownFiles(agentDir)) {
+    if (!(await directoryExistsAsync(agentDir))) return results;
+    for (const file of await listMarkdownFilesAsync(agentDir)) {
       const filePath = path.join(agentDir, file);
-      const content = readUtf8File(filePath);
+      const content = await readUtf8FileAsync(filePath);
       if (content === null) continue;
       const firstLine = getFirstMeaningfulLine(content, true);
       results.push({
@@ -1311,13 +1509,13 @@ export function setupAgentHandlers() {
 
   // List MCP servers discovered from project config files.
   ipcMain.handle('agent:list-project-mcp', async (_event, projectPath: string) => {
-    const projectRoot = resolveProjectDirectory(projectPath);
+    const projectRoot = await resolveProjectDirectoryAsync(projectPath);
     if (!projectRoot) return {};
-    return loadMcpFromProject(projectRoot);
+    return loadMcpFromProjectAsync(projectRoot);
   });
 
   ipcMain.handle('agent:inspect-project-mcp', async (_event, projectPath: string) => {
-    return inspectProjectMcp(projectPath);
+    return inspectProjectMcpAsync(projectPath);
   });
 
   // Warm up the SDK client in the background so the first user message doesn't

@@ -994,6 +994,8 @@ export const ThreadPanel: React.FC = () => {
             ref={scrollContainerRef}
             data-testid="thread-scroll-container"
             className="flex-1 min-h-0 overflow-y-auto"
+            role="log"
+            aria-label="Thread conversation"
             aria-live="polite"
             aria-busy={isThreadRunning}
             onScroll={handleChatScroll}

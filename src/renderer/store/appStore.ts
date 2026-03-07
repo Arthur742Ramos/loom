@@ -499,7 +499,9 @@ const appStore = create<AppState>()(
           try {
             const str = localStorage.getItem(name);
             return str ? JSON.parse(str) : null;
-          } catch {
+          } catch (error: unknown) {
+            console.warn(`Failed to parse persisted Loom state for ${name}:`, error);
+            localStorage.removeItem(name);
             return null;
           }
         },
@@ -512,8 +514,8 @@ const appStore = create<AppState>()(
               return;
             }
             localStorage.setItem(name, str);
-          } catch {
-            // Quota exceeded or serialization error — skip silently.
+          } catch (error: unknown) {
+            console.warn(`Failed to persist Loom state for ${name}:`, error);
           }
         },
         removeItem: (name) => { localStorage.removeItem(name); },
@@ -523,7 +525,7 @@ const appStore = create<AppState>()(
 );
 
 // Expose store for testing/debugging (development and explicit test mode)
-if (process.env.NODE_ENV !== 'production' || window.electronAPI?.isTestMode === true) {
+if (typeof window !== 'undefined' && (process.env.NODE_ENV !== 'production' || window.electronAPI?.isTestMode === true)) {
   window.__appStore = appStore;
 }
 
