@@ -13,8 +13,8 @@ export const WelcomeScreen: React.FC = () => {
       const selection = await selectProjectFromDialog();
       if (!selection) return;
       setProject(selection.path, selection.name);
-    } catch {
-      // Dialog cancelled or IPC error
+    } catch (error: unknown) {
+      console.warn('Project dialog cancelled or failed:', error);
     }
   };
 

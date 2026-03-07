@@ -17,7 +17,8 @@
     "test:e2e": "xvfb-run -a playwright test --project=electron-e2e",
     "test:visual": "xvfb-run -a playwright test --project=electron-visual",
     "test:ci": "npm run build && npm run test:unit && npm run test:e2e && npm run test:visual",
-    "test:live-integrations": "node scripts/live-integration-smoke.mjs"
+    "test:live-integrations": "node scripts/live-integration-smoke.mjs",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@github/copilot-sdk": "^0.1.22",

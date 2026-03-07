@@ -1,10 +1,13 @@
 node_modules/
 dist/
 release/
+coverage/
 *.log
 .env
+.env.*
 .DS_Store
 Thumbs.db
 test-screenshots/
 agent-debug.log
 session-state/
+*.tsbuildinfo

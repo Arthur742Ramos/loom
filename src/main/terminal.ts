@@ -63,7 +63,7 @@ export function setupTerminalHandlers(ptyOverride?: PtyModule | null) {
 
     // Sanitize environment — strip sensitive variables before passing to child shell.
     const safeEnv: Record<string, string> = {};
-    const sensitiveKeys = /^(GITHUB_TOKEN|GITHUB_COPILOT_TOKEN|GH_TOKEN|AZURE_|AWS_|SECRET|PASSWORD|PRIVATE_KEY|LOOM_TEST)/i;
+    const sensitiveKeys = /^(GITHUB_TOKEN|GITHUB_COPILOT_TOKEN|GH_TOKEN|AZURE_|AWS_|SECRET|PASSWORD|PRIVATE_KEY|API_KEY|ACCESS_KEY|AUTH_TOKEN|LOOM_TEST)/i;
     for (const [k, v] of Object.entries(process.env)) {
       if (v !== undefined && !sensitiveKeys.test(k)) {
         safeEnv[k] = v;
