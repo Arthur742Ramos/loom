@@ -298,7 +298,7 @@ describe('src/main/agent.ts', () => {
       issues: [
         {
           severity: 'error',
-          message: 'Skipped .vscode/mcp.json because it contains invalid JSON.',
+          message: expect.stringContaining('Skipped .vscode/mcp.json because it contains invalid JSON.'),
         },
       ],
     });

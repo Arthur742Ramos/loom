@@ -1,12 +1,13 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import type { ElectronAPI } from '../../shared/electron';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
 /** Returns the preload-exposed Electron IPC bridge, or null outside Electron. */
-export function getElectronAPI() {
+export function getElectronAPI(): ElectronAPI | null {
   return typeof window !== 'undefined' ? window.electronAPI ?? null : null;
 }
 

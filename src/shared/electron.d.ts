@@ -1,8 +1,8 @@
 /** Type declarations for the preload-exposed electronAPI bridge. */
 
-type AppStoreHook = typeof import('../renderer/store/appStore').useAppStore;
+export type AppStoreHook = typeof import('../renderer/store/appStore').useAppStore;
 
-interface ElectronAPI {
+export interface ElectronAPI {
   isTestMode: boolean;
   send: (channel: string, ...args: unknown[]) => void;
   invoke: <T = unknown>(channel: string, ...args: unknown[]) => Promise<T>;

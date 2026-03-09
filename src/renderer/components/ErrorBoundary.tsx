@@ -7,24 +7,34 @@ interface Props {
 interface State {
   hasError: boolean;
   error: Error | null;
+  pendingReset: boolean;
 }
 
 export class ErrorBoundary extends React.Component<Props, State> {
-  state: State = { hasError: false, error: null };
+  state: State = { hasError: false, error: null, pendingReset: false };
 
   static getDerivedStateFromError(error: Error): State {
-    return { hasError: true, error };
+    return { hasError: true, error, pendingReset: false };
   }
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('Loom error boundary caught:', error, info.componentStack);
   }
 
+  componentDidUpdate(prevProps: Props) {
+    if (this.state.pendingReset && prevProps.children !== this.props.children) {
+      this.setState({ pendingReset: false });
+    }
+  }
+
   handleReload = () => {
-    this.setState({ hasError: false, error: null });
+    this.setState({ hasError: false, error: null, pendingReset: true });
   };
 
   render() {
+    if (this.state.pendingReset) {
+      return null;
+    }
     if (this.state.hasError) {
       return (
         <div className="flex items-center justify-center h-screen w-screen bg-background text-foreground">

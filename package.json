@@ -18,10 +18,11 @@
     "test:visual": "xvfb-run -a playwright test --project=electron-visual",
     "test:ci": "npm run build && npm run test:unit && npm run test:e2e && npm run test:visual",
     "test:live-integrations": "node scripts/live-integration-smoke.mjs",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "postinstall": "node scripts/patch-copilot-sdk.mjs"
   },
   "dependencies": {
-    "@github/copilot-sdk": "^0.1.22",
+    "@github/copilot-sdk": "^0.1.32",
     "@monaco-editor/react": "^4.6.0",
     "@radix-ui/react-avatar": "^1.1.11",
     "@radix-ui/react-dialog": "^1.1.15",
