@@ -98,3 +98,54 @@ test('shows jump-to-latest while reviewing earlier chat history', async () => {
     maxDiffPixelRatio: 0.03,
   });
 });
+
+test('renders the polished chat conversation flow', async () => {
+  if (!appContext) throw new Error('App context not initialized');
+  const { page } = appContext;
+
+  await page.evaluate(() => {
+    const store = (window as any).__appStore;
+    const state = store.getState();
+    const threadId = state.createThread('Polished conversation', 'local');
+
+    state.addMessage(threadId, {
+      id: 'user-1',
+      role: 'user',
+      content: 'Improve the chat UI and make the conversation easier to scan.',
+      timestamp: Date.now(),
+      status: 'done',
+    });
+    state.addMessage(threadId, {
+      id: 'assistant-1',
+      role: 'assistant',
+      content: 'I reorganized the response into clearer sections, surfaced tool activity inline, and upgraded the composer so the next step feels obvious.',
+      timestamp: Date.now() + 1,
+      status: 'done',
+      thinking: 'Audit the message hierarchy, surface the agent workflow inline, and make the composer feel persistent without overwhelming the user.',
+      toolCalls: [
+        {
+          id: 'tool-1',
+          toolName: 'read_file',
+          status: 'done',
+          result: 'Inspected ThreadPanel.tsx and renderer styles to map the current chat layout before polishing the flow. '.repeat(8),
+        },
+      ],
+    });
+
+    state.addThreadTokenUsage(threadId, {
+      inputTokens: 2200,
+      outputTokens: 540,
+      cacheReadTokens: 180,
+      cacheWriteTokens: 0,
+      totalTokens: 2920,
+    });
+    state.setActiveThread(threadId);
+  });
+
+  await page.getByTestId('thread-input').fill('Follow up with an even tighter interaction flow.');
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur?.());
+  await stabilizePageForScreenshot(page);
+  await expect(page.getByTestId('thread-panel')).toHaveScreenshot('thread-panel-conversation-polish.png', {
+    maxDiffPixelRatio: 0.03,
+  });
+});
